@@ -15,6 +15,25 @@ export function activateEiffelCompiler(context: vscode.ExtensionContext) {
 	context.subscriptions.push(goboEiffelDiagnostics);
 }
 
+export function registerCompileAndRunEiffelFileCommand(context: vscode.ExtensionContext) {
+	// compile command
+	const runCmd = vscode.commands.registerCommand('gobo-eiffel.compileAndRunEiffelFile', async () => {
+		const editor = vscode.window.activeTextEditor;
+		if (!editor) {
+			vscode.window.showErrorMessage('No active editor');
+			return;
+		}
+		const doc = editor.document;
+		if (doc.languageId !== 'eiffel') {
+			vscode.window.showErrorMessage('This is not an Eiffel file');
+			return;
+		}
+		const filePath = doc.fileName;
+		await compileAndRunEiffelFile(filePath, path.dirname(filePath), context);
+	});
+	context.subscriptions.push(runCmd);
+}
+
 /**
  * Compile an Eiffel file.
  * @param filePath Path to the Eiffel source file
