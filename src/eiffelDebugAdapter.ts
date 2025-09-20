@@ -4,64 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { compileEiffelFile } from './eiffelRunner';
 
-interface RunContext {
-	child?: cp.ChildProcessWithoutNullStreams;
-}
-
-// helper: run program directly with pipes
-async function runWithPipes(
-	program: string,
-	cwd: string,
-	emitter: vscode.EventEmitter<vscode.DebugProtocolMessage>,
-	runCtx: RunContext
-) {
-	// Ensure the Debug Console (REPL) is visible
-	vscode.commands.executeCommand('workbench.debug.action.toggleRepl');
-
-	const child = cp.spawn(program, [], {
-		cwd,
-		stdio: ['pipe', 'pipe', 'pipe']
-	});
-	runCtx.child = child;
-
-	// stdout → Debug Console
-	child.stdout.on('data', (data) => {
-		emitter.fire({
-			type: 'event',
-			event: 'output',
-			body: {
-				category: 'stdout',
-				output: data.toString()
-			}
-		});
-	});
-
-	// stderr → Debug Console
-	child.stderr.on('data', (data) => {
-		emitter.fire({
-			type: 'event',
-			event: 'output',
-			body: {
-				category: 'stderr',
-				output: data.toString()
-			}
-		});
-	});
-
-	child.on('exit', (code) => {
-		emitter.fire({
-			type: 'event',
-			event: 'output',
-			body: {
-				category: 'console',
-				output: `\nProcess exited with code ${code}\n`
-			}
-		});
-		emitter.fire({ type: 'event', event: 'terminated', body: {} });
-	});
-}
-
-export function activateDebugAdapter(context: vscode.ExtensionContext) {
+export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 	// Register debug configuration provider
 	const provider: vscode.DebugConfigurationProvider = {
 		resolveDebugConfiguration(folder, config, token) {
@@ -197,4 +140,61 @@ export function activateDebugAdapter(context: vscode.ExtensionContext) {
 	context.subscriptions.push(
 		vscode.debug.registerDebugAdapterDescriptorFactory('eiffel', factory)
 	);
+}
+
+interface RunContext {
+	child?: cp.ChildProcessWithoutNullStreams;
+}
+
+// helper: run program directly with pipes
+async function runWithPipes(
+	program: string,
+	cwd: string,
+	emitter: vscode.EventEmitter<vscode.DebugProtocolMessage>,
+	runCtx: RunContext
+) {
+	// Ensure the Debug Console (REPL) is visible
+	vscode.commands.executeCommand('workbench.debug.action.toggleRepl');
+
+	const child = cp.spawn(program, [], {
+		cwd,
+		stdio: ['pipe', 'pipe', 'pipe']
+	});
+	runCtx.child = child;
+
+	// stdout → Debug Console
+	child.stdout.on('data', (data) => {
+		emitter.fire({
+			type: 'event',
+			event: 'output',
+			body: {
+				category: 'stdout',
+				output: data.toString()
+			}
+		});
+	});
+
+	// stderr → Debug Console
+	child.stderr.on('data', (data) => {
+		emitter.fire({
+			type: 'event',
+			event: 'output',
+			body: {
+				category: 'stderr',
+				output: data.toString()
+			}
+		});
+	});
+
+	child.on('exit', (code) => {
+		emitter.fire({
+			type: 'event',
+			event: 'output',
+			body: {
+				category: 'console',
+				output: `\nProcess exited with code ${code}\n`
+			}
+		});
+		emitter.fire({ type: 'event', event: 'terminated', body: {} });
+	});
 }

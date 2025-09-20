@@ -2,12 +2,15 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { compileAndRunEiffelFile } from './eiffelRunner';
-import { activateDebugAdapter } from './eiffelDebugAdapter';
+import { activateEiffelCompiler, compileAndRunEiffelFile } from './eiffelRunner';
+import { activateEiffelDebugAdapter } from './eiffelDebugAdapter';
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
+	activateEiffelCompiler(context);
+
+	// compile command
 	const runCmd = vscode.commands.registerCommand('gobo-eiffel.compileAndRunEiffelFile', async () => {
 		const editor = vscode.window.activeTextEditor;
 		if (!editor) {
@@ -25,7 +28,7 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(runCmd);
 
 	// Activate our debug adapter logic for the Run button
-	activateDebugAdapter(context);
+	activateEiffelDebugAdapter(context);
 }
 
 // This method is called when your extension is deactivated

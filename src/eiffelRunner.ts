@@ -8,6 +8,12 @@ import * as tar from 'tar';
 import { path7za } from '7zip-bin';
 
 const outputChannel = vscode.window.createOutputChannel("Gobo Eiffel compilation");
+const goboEiffelDiagnostics = vscode.languages.createDiagnosticCollection('gobo-eiffel');
+
+export function activateEiffelCompiler(context: vscode.ExtensionContext) {
+	context.subscriptions.push(outputChannel);
+	context.subscriptions.push(goboEiffelDiagnostics);
+}
 
 /**
  * Compile an Eiffel file.
@@ -37,18 +43,17 @@ export async function compileEiffelFile(filePath: string, outputDir: string, con
 		return -1;
 	}
 
-	const output = outputChannel;
-	output.clear();
-	output.show(true);
-	output.appendLine(`Compiling ${filePath}...`);
+	goboEiffelDiagnostics.clear();
+	outputChannel.clear();
+	outputChannel.show(true);
+	outputChannel.appendLine(`Compiling ${filePath}...`);
 
 	let error_code: number = 0;
 	try {
 		error_code = await spawnWithZigProgress(
 			compiler,
 			[filePath],
-			outputDir,
-			output
+			outputDir
 		);
 	} catch (err: any) {
 		if (error_code === 0) {
@@ -661,8 +666,7 @@ export function ensureEmptyDir(dirPath: string, clearIfNotEmpty = false): void {
 export async function spawnWithZigProgress(
 	compilerPath: string,
 	args: string[],
-	cwd: string,
-	output: vscode.OutputChannel
+	cwd: string
 ): Promise<number> {
 	const childEnv = { ...process.env, ZIG_PROGRESS: '3', ZIG_VERBOSE_CC: 'true' };
 
@@ -671,40 +675,131 @@ export async function spawnWithZigProgress(
 		const child = cp.spawn(
 			compilerPath,
 			args,
-			{ cwd: cwd, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'], shell: true }
+			{ cwd: cwd, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] }
 		);
+
+		const diagnosticsByFile = new Map<string, vscode.Diagnostic[]>();
+		let lastDiagnosticMessage: string | undefined;
+		let lastDiagnosticLine: number = 1;
+		let lastDiagnosticColumn: number = 1;
+		let lastDiagnosticCode: string | undefined;
+		let lastDiagnosticFile: string | undefined;
+		let outBuffer = '';
 		if (child.stdout) {
 			child.stdout.setEncoding('utf8');
 			child.stdout.on('data', (d: string) => {
-				output.append(d.replace(/^\r/, ''));
-			});
-		}
-		let buffer = '';
-		if (child.stderr) {
-			child.stderr.setEncoding('utf8');
-			child.stderr.on('data', (d: string) => {
-				// Try to split by newline; if no newline, accumulate in buffer
-				buffer += d;
-				// If we have newline(s), process each line
+				let needDiagnosticsUpdate: boolean = false;
+				outBuffer += d.replace(/\r/g, '');
 				let idx: number;
-				while ((idx = buffer.indexOf('\n')) !== -1) {
-					const line = buffer.slice(0, idx);
-					buffer = buffer.slice(idx + 1);
-					const matchCFile = line.match(/[\/\\]zig[\/\\]zig(\.exe)? clang (.*[\/\\])?([^\/\\]+\.[cS]) /);
-					const matchIgnore = line.match(/^(output path: )|(include dir: )|(def file: )/);
-					if (matchCFile) {
-						const cFile = matchCFile[3];
-						output.appendLine(cFile);
-					} else if (!matchIgnore) {
-						output.appendLine(line);
+				while ((idx = outBuffer.indexOf('\n')) !== -1) {
+					const line = outBuffer.slice(0, idx);
+					outBuffer = outBuffer.slice(idx + 1);
+					outputChannel.appendLine(line);
+
+					const validityErrorMatch = line.match(/^\[([^\]]+)\] (class [a-zA-Z][a-zA-Z0-9_]*) \((([a-zA-Z][a-zA-Z0-9_]*),)?(\d+),(\d+)\)(: .*)$/);
+					const syntaxErrorMatch = line.match(/^(Syntax error:)$/);
+					if (validityErrorMatch) {
+						lastDiagnosticLine = Number(validityErrorMatch[5]);
+						lastDiagnosticColumn = Number(validityErrorMatch[6]);
+						lastDiagnosticMessage = validityErrorMatch[2];
+						if (validityErrorMatch[4]) {
+							lastDiagnosticMessage += ` (${validityErrorMatch[4]})`;
+						}
+						lastDiagnosticMessage += validityErrorMatch[7];
+						lastDiagnosticCode = validityErrorMatch[1];
+					} else if (syntaxErrorMatch) {
+						lastDiagnosticMessage = syntaxErrorMatch[1];
+					} else if (lastDiagnosticMessage) {
+						if (line === '----') {
+							if (lastDiagnosticFile) {
+								let endColumn: number = lastDiagnosticColumn + 1;
+								let errorLine = getNthLineSync(lastDiagnosticFile, lastDiagnosticLine);
+								if (errorLine) {
+									errorLine = errorLine.slice(lastDiagnosticColumn - 1);
+									const identifierOrIntegerMatch = errorLine.match(/^([a-zA-Z0-9_]+)/); // Possibly with lexical error.
+									if (identifierOrIntegerMatch) {
+										endColumn = lastDiagnosticColumn + identifierOrIntegerMatch[1].length;
+									}
+								}
+								const lastDiagnostic = new vscode.Diagnostic(
+									new vscode.Range(lastDiagnosticLine - 1, lastDiagnosticColumn - 1, lastDiagnosticLine - 1, endColumn - 1),
+									lastDiagnosticMessage,
+									vscode.DiagnosticSeverity.Error
+								);
+								lastDiagnostic.source = 'Eiffel';
+								if (lastDiagnosticCode) {
+									lastDiagnostic.code = lastDiagnosticCode;
+								}
+								if (!diagnosticsByFile.has(lastDiagnosticFile)) {
+									diagnosticsByFile.set(lastDiagnosticFile, []);
+								}
+								diagnosticsByFile.get(lastDiagnosticFile)!.push(lastDiagnostic);
+								needDiagnosticsUpdate = true;
+							}
+							lastDiagnosticFile = undefined;
+							lastDiagnosticMessage = undefined;
+							lastDiagnosticLine = 1;
+							lastDiagnosticColumn = 1;
+							lastDiagnosticCode = undefined;
+						} else {
+							const validityErrorFileMatch = line.match(/^\tclass [a-zA-Z0-9_]+: (.*)$/);
+							const SyntaxErrorFileMatch = line.match(/^line (\d+) column (\d+) in (.*)$/);
+							if (validityErrorFileMatch) {
+								lastDiagnosticFile = validityErrorFileMatch[1];
+							} else if (SyntaxErrorFileMatch) {
+								lastDiagnosticLine = Number(SyntaxErrorFileMatch[1]);
+								lastDiagnosticColumn = Number(SyntaxErrorFileMatch[2]);
+								lastDiagnosticFile = SyntaxErrorFileMatch[3];
+							} else {
+								lastDiagnosticMessage += '\n' + line;
+							}
+						}
 					}
 				}
 
 				// If buffer grows very large without newline, try to handle as a single message (fallback)
 				const MAX_BUF = 1024 * 64; // 64KB
-				if (buffer.length > MAX_BUF) {
-					output.append(buffer);
-					buffer = '';
+				if (outBuffer.length > MAX_BUF) {
+					outBuffer = '';
+				}
+
+				// Real-time update
+				if (needDiagnosticsUpdate) {
+					goboEiffelDiagnostics.clear();
+					for (const [file, diags] of diagnosticsByFile) {
+						const uri = vscode.Uri.file(file);
+						goboEiffelDiagnostics.set(uri, diags);
+					}
+				}
+			});
+		}
+
+		let errBuffer = '';
+		if (child.stderr) {
+			child.stderr.setEncoding('utf8');
+			child.stderr.on('data', (d: string) => {
+				// Try to split by newline; if no newline, accumulate in buffer
+				errBuffer += d;
+				// If we have newline(s), process each line
+				let idx: number;
+				while ((idx = errBuffer.indexOf('\n')) !== -1) {
+					const line = errBuffer.slice(0, idx);
+					errBuffer = errBuffer.slice(idx + 1);
+					const matchCFile = line.match(/[\/\\]zig[\/\\]zig(\.exe)? clang (.*[\/\\])?([^\/\\]+\.[cS]) /);
+					const matchIgnore = line.match(/^(output path: )|(include dir: )|(def file: )/);
+					if (matchCFile) {
+						const cFile = matchCFile[3];
+						outputChannel.appendLine(cFile);
+					} else if (!matchIgnore) {
+						outputChannel.appendLine(line);
+					}
+				}
+
+				// If buffer grows very large without newline, try to handle as a single message (fallback)
+				const MAX_BUF = 1024 * 64; // 64KB
+				if (errBuffer.length > MAX_BUF) {
+					outputChannel.append(errBuffer);
+					errBuffer = '';
 				}
 			});
 		}
@@ -725,4 +820,48 @@ export async function spawnWithZigProgress(
 		});
 	});
 	return error_code;
+}
+
+function getNthLineSync(filePath: string, n: number): string | undefined {
+	if (n <= 0) {
+		return undefined;
+	}
+
+	const fd = fs.openSync(filePath, 'r'); // open file descriptor
+	const buffer = Buffer.alloc(1024);     // read in chunks
+	let line = '';
+	let lineCount = 0;
+	let bytesRead: number;
+
+	try {
+		do {
+			bytesRead = fs.readSync(fd, buffer, 0, buffer.length, null);
+			if (bytesRead > 0) {
+				let chunk = buffer.toString('utf8', 0, bytesRead);
+				for (let i = 0; i < chunk.length; i++) {
+					const char = chunk[i];
+					if (char === '\n') {
+						lineCount++;
+						if (lineCount === n) {
+							// strip trailing \r if Windows line endings
+							return line.replace(/\r$/, '');
+						}
+						line = '';
+					} else {
+						line += char;
+					}
+				}
+			}
+		} while (bytesRead > 0);
+
+		// if file ended but maybe last line without newline
+		if (line && lineCount + 1 === n) {
+			return line.replace(/\r$/, '');
+		}
+	} catch (err) {
+		return undefined;
+	} finally {
+		fs.closeSync(fd);
+	}
+	return undefined;
 }
