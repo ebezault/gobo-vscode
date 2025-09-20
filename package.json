@@ -1,56 +1,187 @@
 {
-  "name": "gobo-vscode",
-  "displayName": "gobo-vscode",
-  "description": "Gobo Eiffel",
-  "version": "0.0.1",
-  "engines": {
-    "vscode": "^1.104.0"
-  },
-  "categories": [
-    "Programming Languages"
-  ],
-  "activationEvents": [],
-  "main": "./out/extension.js",
-  "contributes": {
-    "languages": [
-      {
-        "id": "eiffel",
-        "aliases": ["Eiffel", "e"],
-        "extensions": [".e"],
-        "configuration": "./language-configuration.json"
-      }
-    ],
-    "grammars": [
-      {
-        "language": "eiffel",
-        "scopeName": "source.eiffel",
-        "path": "./syntaxes/eiffel.tmLanguage.json"
-      }
-    ],
-    "commands": [
-      {
-        "command": "gobo-vscode.helloWorld",
-        "title": "Hello World"
-      }
-    ]
-  },
-  "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src",
-    "test": "vscode-test"
-  },
-  "devDependencies": {
-    "@types/vscode": "^1.104.0",
-    "@types/mocha": "^10.0.10",
-    "@types/node": "22.x",
-    "@typescript-eslint/eslint-plugin": "^8.42.0",
-    "@typescript-eslint/parser": "^8.42.0",
-    "eslint": "^9.34.0",
-    "typescript": "^5.9.2",
-    "@vscode/test-cli": "^0.0.11",
-    "@vscode/test-electron": "^2.5.2"
-  }
+	"name": "gobo-eiffel",
+	"displayName": "Gobo Eiffel",
+	"description": "Eiffel language support using Gobo Eiffel",
+	"version": "0.0.1",
+	"publisher": "gobosoft",
+	"engines": {
+		"vscode": "^1.104.0"
+	},
+	"categories": [
+		"Programming Languages"
+	],
+	"activationEvents": [
+		"onCommand:gobo-eiffel.compileAndRunEiffelFile",
+		"onDebug:eiffel",
+		"onDebugInitialConfigurations",
+		"onDebugResolve:eiffel"
+	],
+	"main": "./out/extension.js",
+	"contributes": {
+		"languages": [
+			{
+				"id": "eiffel",
+				"aliases": [
+					"Eiffel",
+					"e"
+				],
+				"extensions": [
+					".e"
+				],
+				"configuration": "./language-configuration.json"
+			}
+		],
+		"grammars": [
+			{
+				"language": "eiffel",
+				"scopeName": "source.eiffel",
+				"path": "./syntaxes/eiffel.tmLanguage.json"
+			}
+		],
+		"configuration": {
+			"description": "Gobo Eiffel Settings",
+			"properties": {
+				"gobo-eiffel.goboEiffelPath": {
+					"type": "string",
+					"description": "Path to Gobo Eiffel installation",
+					"default": ""
+				},
+				"gobo-eiffel.automaticUpdateCheck": {
+					"type": "boolean",
+					"description": "Automatically checks for new Gobo Eiffel releases",
+					"default": true
+				}
+			}
+		},
+		"commands": [
+			{
+				"command": "gobo-eiffel.compileAndRunEiffelFile",
+				"title": "Comiple & Run Eiffel File",
+				"category": "Gobo Eiffel"
+			}
+		],
+		"debuggers": [
+			{
+				"type": "eiffel",
+				"label": "Eiffel",
+				"languages": [
+					"eiffel"
+				],
+				"configurationSnippets": [
+					{
+						"label": "Gobo Eiffel: Compile & Run Eiffel File",
+						"description": "Compile and run the current Eiffel file",
+						"body": {
+							"name": "Compile & Run Eiffel File",
+							"type": "eiffel",
+							"request": "launch",
+							"program": "${file}",
+							"console": "integratedTerminal",
+							"internalConsoleOptions": "neverOpen"
+						}
+					},
+					{
+						"label": "Gobo Eiffel: Run Executable Only",
+						"description": "Run the compiled Eiffel executable only",
+						"body": {
+							"name": "Run Eiffel Executable Only",
+							"type": "eiffel",
+							"request": "launch",
+							"program": "${file}",
+							"console": "integratedTerminal",
+							"internalConsoleOptions": "neverOpen",
+							"runBinaryOnly": true
+						}
+					}
+				],
+				"configurationAttributes": {
+					"launch": {
+						"required": [
+							"program"
+						],
+						"properties": {
+							"program": {
+								"type": "string",
+								"description": "The Eiffel source file to compile and run",
+								"default": "${file}"
+							},
+							"console": {
+								"type": "string",
+								"enum": [
+									"internalConsole",
+									"integratedTerminal",
+									"externalTerminal"
+								],
+								"default": "integratedTerminal",
+								"description": "Where to run the program"
+							},
+							"internalConsoleOptions": {
+								"type": "string",
+								"enum": [
+									"neverOpen",
+									"openOnSessionStart",
+									"openOnFirstSessionStart"
+								],
+								"default": "neverOpen",
+								"description": "Controls when to open the internal console"
+							},
+							"runBinaryOnly": {
+								"type": "boolean",
+								"description": "If true, runs the compiled Eiffel executable without recompiling.",
+								"default": false
+							}
+						}
+					}
+				}
+			}
+		],
+		"problemMatchers": [
+			{
+				"name": "gec",
+				"owner": "eiffel",
+				"fileLocation": [
+					"relative",
+					"${workspaceFolder}"
+				],
+				"pattern": {
+					"regexp": "^(.*)\\((\\d+)\\):\\s+(.*)$",
+					"file": 1,
+					"line": 2,
+					"message": 3
+				}
+			}
+		],
+		"menus": {
+			"commandPalette": [
+				{
+					"command": "gobo-eiffel.compileAndRunEiffelFile",
+					"when": "editorLangId == eiffel",
+					"group": ""
+				}
+			]
+		}
+	},
+	"dependencies": {
+		"7zip-bin": "^5.2.0",
+		"tar": "^7.4.3"
+	},
+	"scripts": {
+		"vscode:prepublish": "npm run compile",
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./",
+		"pretest": "npm run compile && npm run lint",
+		"lint": "eslint src",
+		"test": "vscode-test"
+	},
+	"devDependencies": {
+		"@types/mocha": "^10.0.10",
+		"@types/node": "22.x",
+		"@types/vscode": "^1.104.0",
+		"@typescript-eslint/eslint-plugin": "^8.42.0",
+		"@typescript-eslint/parser": "^8.42.0",
+		"@vscode/test-cli": "^0.0.11",
+		"@vscode/test-electron": "^2.5.2",
+		"eslint": "^9.34.0",
+		"typescript": "^5.9.2"
+	}
 }

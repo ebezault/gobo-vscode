@@ -1,6 +1,6 @@
-# gobo-vscode README
+# gobo-eiffel README
 
-This is the README for your extension "gobo-vscode". After writing up a brief description, we recommend including the following sections.
+This is the README for your extension "gobo-eiffel". After writing up a brief description, we recommend including the following sections.
 
 ## Features
 
