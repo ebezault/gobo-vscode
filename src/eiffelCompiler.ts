@@ -549,12 +549,13 @@ async function spawnInOutputChannel(
 				while ((idx = errBuffer.indexOf('\n')) !== -1) {
 					const line = errBuffer.slice(0, idx);
 					errBuffer = errBuffer.slice(idx + 1);
-					const matchCFile = line.match(/^(.*[\/\\]zig[\/\\])?zig(\.exe)? clang (.*[\/\\])?([^\/\\]+\.[cS]) /);
-					const matchIgnore = line.match(/^(output path: )|(include dir: )|(def file: )/);
+					const matchCFile = line.match(/zig(\.exe)? clang (.*[\/\\])?([^\/\\]+\.[cS]) /);
+					const matchIgnore1 = line.match(/^(output path: )|(include dir: )|(def file: )|(\-Xclang)|(\-target-feature)/);
+					const matchIgnore2 = line.match(/(\-Xclang)|(\-target-feature)/);
 					if (matchCFile) {
-						const cFile = matchCFile[4];
+						const cFile = matchCFile[3];
 						outputChannel.appendLine(cFile);
-					} else if (!matchIgnore) {
+					} else if (!matchIgnore1 && !matchIgnore2) {
 						outputChannel.appendLine(line);
 					}
 				}
