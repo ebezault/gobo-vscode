@@ -9,7 +9,11 @@
 		"email": "ericb@gobosoft.com",
 		"url": "https://www.gobosoft.com"
 	},
-	"icon": "images/gobo.png", 
+	"icon": "images/gobo.png",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/gobo-eiffel/gobo-vscode"
+	},
 	"engines": {
 		"vscode": "^1.104.0"
 	},
