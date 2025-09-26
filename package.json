@@ -54,6 +54,11 @@
 					"type": "boolean",
 					"description": "Automatically checks for new Gobo Eiffel releases",
 					"default": true
+				},
+				"gobo-eiffel.useNightlyBuild": {
+					"type": "boolean",
+					"description": "Use Gobo Eiffel nightly build",
+					"default": false
 				}
 			}
 		},

@@ -45,15 +45,15 @@ export async function getOrInstallOrUpdateGoboEiffel(context: vscode.ExtensionCo
  * @returns path to the selected installation of Gobo Eiffel, or undefined on error
  */
 export async function selectOrDownloadAndInstall(context: vscode.ExtensionContext, message?: string): Promise<string | undefined> {
+	const goboPath = getCurrentlySelectedGoboEiffel(context);
 	if (!message) {
-		const goboPath = getCurrentlySelectedGoboEiffel(context);
 		if (goboPath) {
-			let version = '';
+			let goboFullVersion = '';
 			const goboVersion = await getLocalGoboVersion(goboPath);
 			if (goboVersion) {
-				version = ` (version ${goboVersion.year}.${goboVersion.month})`;
+				goboFullVersion = ` (version ${goboVersion.year}.${goboVersion.month}.${goboVersion.day}+${goboVersion.commit})`;
 			}
-			message = `Currently selected Gobo Eiffel installation${version}:\n\n${goboPath}\n\nSelect new Gobo Eiffel installation:`;
+			message = `Currently selected Gobo Eiffel installation${goboFullVersion}:\n\n${goboPath}\n\nSelect new Gobo Eiffel installation:`;
 		} else {
 			message = `No Gobo Eiffel installation currently selected.\nSelect Gobo Eiffel installation:`;
 		}
@@ -61,16 +61,20 @@ export async function selectOrDownloadAndInstall(context: vscode.ExtensionContex
 	const choice = await vscode.window.showInformationMessage(
 		message,
 		{ modal: true },
-		'Download & Install',
+		'Download Latest & Install',
 		'Select Existing Installation'
 	);
 
 	if (choice === 'Select Existing Installation') {
-		const uris = await vscode.window.showOpenDialog({
+		let dialogOptions: vscode.OpenDialogOptions = {
 			canSelectFiles: false,
 			canSelectFolders: true,
-			openLabel: 'Select Gobo Eiffel Folder',
-		});
+			openLabel: 'Select Gobo Eiffel Folder'
+		};
+		if (goboPath  && fs.existsSync(goboPath)) {
+			dialogOptions = { ...dialogOptions, defaultUri: vscode.Uri.file(path.dirname(goboPath)) };
+		}
+		const uris = await vscode.window.showOpenDialog(dialogOptions);
 		if (uris && uris.length > 0) {
 			const chosen = uris[0].fsPath;
 			context.globalState.update('goboEiffelPath', chosen);
@@ -79,13 +83,13 @@ export async function selectOrDownloadAndInstall(context: vscode.ExtensionContex
 		return;
 	}
 
-	if (choice === 'Download & Install') {
+	if (choice === 'Download Latest & Install') {
 		const latestRelease = await fetchLatestRelease();
 		if (!latestRelease) {
 			vscode.window.showErrorMessage('Could not fetch latest Gobo Eiffel release');
 			return;
 		}
-		return await downloadAndInstall(latestRelease.assetUrl, latestRelease.assetName, context);
+		return await downloadAndInstall(latestRelease.fileUrl, latestRelease.fileName, context);
 	}
 
 	return; // Cancel
@@ -144,21 +148,19 @@ async function checkForUpdates(goboPath: string, context: vscode.ExtensionContex
 	}
 
 	const goboVersion = await getLocalGoboVersion(goboPath);
-	const goboVersionTag = ((goboVersion) ? `gobo-${goboVersion.year}.${goboVersion.month})` : '');
+	const goboFullVersion = ((goboVersion) ? `${goboVersion.year}.${goboVersion.month}.${goboVersion.day})+${goboVersion.commit}` : '');
+	const latestReleaseVersion = latestRelease.version;
+	const latestReleaseFullVersion = `${latestReleaseVersion.year}.${latestReleaseVersion.month}.${latestReleaseVersion.day})+${latestReleaseVersion.commit}`;
 
-	if (latestRelease && goboVersion && latestRelease.tag !== goboVersionTag) {
-		let latestReleasetag = latestRelease.tag;
-		if (latestReleasetag.startsWith('gobo-')) {
-			latestReleasetag = latestReleasetag.slice(5);
-		}
+	if (goboVersion && latestReleaseFullVersion !== goboFullVersion) {
 		const choice = await vscode.window.showInformationMessage(
-			`A newer release of Gobo Eiffel (${latestReleasetag}) is available.`,
+			`A newer release of Gobo Eiffel (${latestReleaseFullVersion}) is available.`,
 			{ modal: true },
 			'Update',
 			'Skip'
 		);
 		if (choice === 'Update') {
-			return await downloadAndInstall(latestRelease.assetUrl, latestRelease.assetName, context);
+			return await downloadAndInstall(latestRelease.fileUrl, latestRelease.fileName, context);
 		}
 		if (choice === 'Skip') {
 			return goboPath;
@@ -177,11 +179,16 @@ async function checkForUpdates(goboPath: string, context: vscode.ExtensionContex
  * @returns path to the new installation of Gobo Eiffel, or undefined on error
  */
 async function downloadAndInstall(fileUrl: string, fileName: string, context: vscode.ExtensionContext): Promise<string | undefined> {
-	const installUris = await vscode.window.showOpenDialog({
+	const goboPath = getCurrentlySelectedGoboEiffel(context);
+	let dialogOptions: vscode.OpenDialogOptions = {
 		canSelectFiles: false,
 		canSelectFolders: true,
-		openLabel: 'Select Install Folder',
-	});
+		openLabel: 'Select Install Folder'
+	};
+	if (goboPath  && fs.existsSync(goboPath)) {
+		dialogOptions = { ...dialogOptions, defaultUri: vscode.Uri.file(path.dirname(goboPath)) };
+	}
+	const installUris = await vscode.window.showOpenDialog(dialogOptions);
 	if (!installUris || installUris.length === 0) {
 		return;
 	}
@@ -279,12 +286,19 @@ async function downloadAndInstall(fileUrl: string, fileName: string, context: vs
 	return installDir;
 }
 
+interface GoboVersion {
+	year: string;
+	month: string;
+	day: string;
+	commit: string
+}
+
 /**
  * Get the Gobo Eiffel version for a given installation folder.
  * @param goboPath folder containing Gobo Eiffel installation
  * @returns version object or undefined on error
  */
-async function getLocalGoboVersion(goboPath: string): Promise<{year: string, month: string, day: string, commit: string} | undefined> {
+async function getLocalGoboVersion(goboPath: string): Promise<GoboVersion | undefined> {
 	const gecPath = path.join(goboPath, 'bin', 'gec' + (os.platform() === 'win32' ? '.exe' : ''));
 	try {
 		if (!fs.existsSync(gecPath)) {
@@ -324,8 +338,11 @@ async function getLocalGoboVersion(goboPath: string): Promise<{year: string, mon
  * Get information about the latest release of Gobo Eiffel.
  * @returns information about the latest release of Gobo Eiffel, or undefined on error
  */
-async function fetchLatestRelease(): Promise<{ tag: string; assetUrl: string; assetName: string } | undefined> {
-	const apiUrl = 'https://api.github.com/repos/gobo-eiffel/gobo/releases/latest';
+async function fetchLatestRelease(): Promise<{ fileUrl: string; fileName: string; version: GoboVersion } | undefined> {
+	const nightlyBuild = vscode.workspace.getConfiguration('gobo-eiffel').get<boolean>('useNightlyBuild');
+	const apiUrlLatest = 'https://api.github.com/repos/gobo-eiffel/gobo/releases/latest';
+	const apiUrlReleases = 'https://api.github.com/repos/gobo-eiffel/gobo/releases';
+	const apiUrl = ((nightlyBuild) ? apiUrlReleases : apiUrlLatest);
 	return new Promise((resolve) => {
 		https
 			.get(apiUrl, { headers: { 'User-Agent': 'VSCode-GoboEiffel' } }, (res) => {
@@ -333,7 +350,16 @@ async function fetchLatestRelease(): Promise<{ tag: string; assetUrl: string; as
 				res.on('data', (chunk) => (data += chunk));
 				res.on('end', () => {
 					try {
-						const release = JSON.parse(data);
+						let release;
+						if (nightlyBuild) {
+							const releases = JSON.parse(data);
+							release = releases.find((a: any) => a.tag_name === 'nightly');
+						} else {
+							release = JSON.parse(data);
+						}
+						if (!release) {
+							return;
+						}
 						const nodePlatform = os.platform();
 						let platformForPackage: string;
 						if (nodePlatform === 'win32') {
@@ -354,16 +380,27 @@ async function fetchLatestRelease(): Promise<{ tag: string; assetUrl: string; as
 						} else {
 							archForPackage = nodeArch;
 						}
+						const namePrefix = `gobo-${platformForPackage}-${archForPackage}-`;
 
 						const asset = release.assets.find((a: any) =>
-							a.name.includes(platformForPackage) && a.name.includes(archForPackage)
+							a.name.includes(namePrefix)
 						);
 						if (asset) {
-							resolve({
-								tag: release.tag_name,
-								assetUrl: asset.browser_download_url,
-								assetName: asset.name,
-							});
+							const match = asset.name.match(/\-(\d+)\.(\d+)\.(\d+)\+([0-9a-fA-F]+)\./);
+							if (match) {
+								resolve({
+									fileUrl: asset.browser_download_url,
+									fileName: asset.name,
+									version: {
+										year: match[1],
+										month: match[2], 
+										day: match[3],
+										commit: match[4]
+									}
+								});
+							} else {
+								resolve(undefined);
+							}
 						} else {
 							resolve(undefined);
 						}
