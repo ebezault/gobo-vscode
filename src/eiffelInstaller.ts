@@ -4,7 +4,6 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as https from 'https';
-import * as tar from 'tar';
 import { path7za } from '7zip-bin';
 import { ensureEmptyDir } from './eiffelUtilities';
 
@@ -542,31 +541,33 @@ export async function extract7zWithProgress(
 		},
 		(progress) => {
 			return new Promise<void>((resolve, reject) => {
-				let totalFiles = 0;
-				let lastPercent = -1;
-
+				progress.report({ increment: 0, message: '0%' });
 				// First, list the archive contents to count files
 				const listProc = cp.spawn(path7za, ['l', '-ba', compressedFile], { stdio: ['ignore', 'pipe', 'pipe'] });
 				let listOutput = '';
+				listProc.stdout.setEncoding('utf8');
 				listProc.stdout.on('data', (buf: Buffer) => { listOutput += buf.toString(); });
+				listProc.stderr.setEncoding('utf8');
 				listProc.stderr.on('data', (buf: Buffer) => { listOutput += buf.toString(); });
+				listProc.on('error', (err) => reject(err));
 
 				listProc.on('close', (code) => {
 					if (code !== 0) {
 						return reject(new Error(`7z list failed with code ${code}`));
 					}
 
-					// Count lines that look like files (skip header/footer)
-					const entries = listOutput.split(/\r?\n/);
-					totalFiles = entries.length;
-					if (totalFiles === 0) {
-						totalFiles = 1; // avoid div by zero
-					}
+					// Count lines that look like files
+					let entries = listOutput.split(/\r?\n/);
+					const totalFiles = entries.length || 1;  // avoid div by zero
+					entries = [];
+					listOutput = '';
 
 					// Extract with output parsing
 					const args = ['x', compressedFile, `-o${extractedDir}`, '-y', '-bsp1'];
-					const extractProc = cp.spawn(path7za, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+					const extractProc = cp.spawn(path7za, args, { stdio: ['ignore', 'pipe', 'ignore'] });
 
+					let lastPercent = -1;
+					extractProc.stdout.setEncoding('utf8');
 					extractProc.stdout.on('data', (buf: Buffer) => {
 						const s = buf.toString();
 						const lines = s.split(/\r?\n/);
@@ -593,7 +594,6 @@ export async function extract7zWithProgress(
 							reject(new Error(`7z extraction failed with code ${code}`));
 						}
 					});
-
 					extractProc.on('error', (err) => reject(err));
 				});
 			});
@@ -623,32 +623,63 @@ export async function extractTarXzWithProgress(
 			cancellable: false
 		},
 		async (progress) => {
-			// 1. Count total files
-			let totalFiles = 0;
-			await tar.list({
-				file: compressedFile,
-				onentry: () => { totalFiles++; }
-			});
-
-			if (totalFiles === 0) {
-				totalFiles = 1; // prevent division by zero
-			}
-
-			// 2. Extract with progress
-			let extractedFiles = 0;
-			let lastPercent = -1;
-
-			await tar.x({
-				file: compressedFile,
-				cwd: extractedDir,
-				onentry: () => {
-					extractedFiles++;
-					const percent = Math.floor((extractedFiles / totalFiles) * 100);
-					if (percent > lastPercent) {
-						progress.report({ increment: percent - lastPercent, message: `${percent}%` });
-						lastPercent = percent;
+			return new Promise<void>((resolve, reject) => {
+				progress.report({ increment: 0, message: '0%' });
+				// First, list the archive contents to count files
+				const listProc = cp.spawn('tar', ['--checkpoint', '-tf', compressedFile], { stdio: ['ignore', 'ignore', 'pipe'] });
+				let totalFiles = 1;
+				listProc.stderr.setEncoding('utf8');
+				listProc.stderr.on('data', (buf: Buffer) => {
+					const s = buf.toString();
+					const lines = s.split('\n');
+					for (const line of lines) {
+						const matchProgress = line.match(/Read checkpoint\s+(\d+)/);
+						if (matchProgress) {
+							totalFiles = Number(matchProgress[1]);
+						}
 					}
-				}
+				});
+				listProc.on('error', (err) => reject(err));
+
+				listProc.on('close', (code) => {
+					if (code !== 0) {
+						return reject(new Error(`tar list failed with code ${code}`));
+					}
+					// Extract with output parsing
+					const args = ['--checkpoint', '-xJv', '-f', compressedFile, '-C', extractedDir];
+					const extractProc = cp.spawn('tar', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+
+					let lastPercent = -1;
+					let extractedFiles = 0;
+					extractProc.stderr.setEncoding('utf8');
+					extractProc.stderr.on('data', (buf: Buffer) => {
+						const s = buf.toString();
+						const lines = s.split('\n');
+						for (const line of lines) {
+							const matchProgress = line.match(/Read checkpoint\s+(\d+)/);
+							if (matchProgress) {
+								extractedFiles = Number(matchProgress[1]);
+								const percent = Math.floor((extractedFiles / totalFiles) * 100);
+								if (percent > lastPercent) {
+									progress.report({ increment: percent - lastPercent, message: `${percent}%` });
+									lastPercent = percent;
+								}
+							}
+						}
+					});
+
+					extractProc.on('close', (code) => {
+						if (lastPercent < 100) {
+							progress.report({ increment: 100 - lastPercent, message: '100%' });
+						}
+						if (code === 0) {
+							resolve();
+						} else {
+							reject(new Error(`tar extraction failed with code ${code}`));
+						}
+					});
+					extractProc.on('error', (err) => reject(err));
+				});
 			});
 		}
 	);
