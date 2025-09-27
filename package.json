@@ -578,8 +578,7 @@
 	},
 	"dependencies": {
 		"7zip-bin": "^5.2.0",
-		"shell-quote": "^1.8.3",
-		"tar": "^7.4.3"
+		"shell-quote": "^1.8.3"
 	},
 	"scripts": {
 		"vscode:prepublish": "npm run compile",
