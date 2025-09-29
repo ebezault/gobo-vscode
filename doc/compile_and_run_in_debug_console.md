@@ -1,10 +1,26 @@
-# Compile And Run from the *Debug Console* panel
+# Compile And Run in the *Debug Console* panel
 
-It is possible to compile and run an Eiffel system from the *Debug And Run* panel. When you click on `create a launch.json file`, this file will be initially populated with several *Launch Configurations* which can be used unmodified, or which can be adapted for more advanced usages.
+You can easily **compile and run Eiffel systems** directly from the *Run And Debug* panel. When you click **`create a launch.json file`**, VS Code automatically generates a file pre-filled with several *Launch Configurations*. These can be used as-is or customized for more advanced workflows.
 
 ![Create a launch.json file](../images/create_launch_file.png)
 
-> ⚠️ **Note:** Breakpoints are not yet supported when running an Eiffel system.
+The pre-filled configurations are:
+
+* [Compile & Run Current Eiffel File](#compile--run-current-eiffel-file)
+* [Compile Current Eiffel File](#compile-current-eiffel-file)
+* [Run Current Eiffel File](#run-current-eiffel-file)
+* [Compile & Run With Current ECF File](#compile--run-with-current-ecf-file)
+* [Compile With Current ECF File](#compile-with-current-ecf-file)
+* [Run With Current ECF File](#run-with-current-ecf-file)
+* [Compile & Run Eiffel System](#compile--run-eiffel-system)
+* [Compile Eiffel System](#compile-eiffel-system)
+* [Run Eiffel System](#run-eiffel-system)
+
+Compilation output appears in the *Output* panel, whereas the compiled executable runs in the *Debug Console* panel.
+
+To run the compiled executable in the *Terminal* panel, use the [commands](compile_and_run_in_terminal.md) available in the *Command Palette* and contextul menus.
+
+> ⚠️ **Limitations:** Breakpoints are not currently supported when running an Eiffel system.
 
 ## Compile & Run Current Eiffel File
 
@@ -21,34 +37,41 @@ It is possible to compile and run an Eiffel system from the *Debug And Run* pane
 }
 ```
 
-When running this launch configuration, the Eiffel class in the currently selected *Editor* panel will be compiled in the *Output* panel, and then executed in the *Debug Console* panel.
+This configuration compiles the Eiffel class currently open in the *Editor* and runs it in the *Debug Console* panel.
 
 ![Compile & Run Current Eiffel File](../images/compile_and_run_in_debugger.gif)
 
 ### Compilation Options
 
-Compilation options can be specified using `compilationOptions`. For example:
+Use `compilationOptions` to pass flags to the compiler. For example:
 
 ```json
 "compilationOptions": ["--finalize"]
 ```
 
-can be used to compile an optimized executable, ready for release. The
-complete list of compilation options can be found in the *Gobo Eiffel Compiler* documentation [here](https://www.gobosoft.com/eiffel/gobo/tool/gec/doc/usage.html).
+compiles an optimized executable for release.
+See the full list of options in the [Gobo Eiffel Compiler documentation](https://www.gobosoft.com/eiffel/gobo/tool/gec/doc/usage.html).
 
 ### Build Directory
 
-By default, the compiled executable file as well as intermediary file will be generated in the folder containing the Eiffel file. The executable file will be named after the Eiffel class, e.g. `hello_world.exe` on Windows and `hello_world` on Linux and MacOS if the name of the Eiffel class is `HELLO_WORLD`. Intermediate files will be found in a subfolder `.gobo`. These compilation artifacts can generated in another folder of your choice by telling the *Gobo Eiffel Compiler* to run in this folder:
+By default, executables and intermediate files are generated in the same folder as the Eiffel file.
+The executable name matches the Eiffel class name, e.g.:
+
+* `HELLO_WORLD` → `hello_world.exe` on Windows
+* `HELLO_WORLD` → `hello_world` on Linux/macOS
+
+Intermediate files go into a `.gobo` subfolder.
+To change the output location:
 
 ```json
 "buildDir": "path/to/my/build/folder"
 ```
 
-Note that this pathname can contain environment variables of the form `$VAR` or `${VAR}`.
+Supports environment variables of the form `$VAR` or `${VAR}`.
 
 ### Arguments
 
-When running the compiled executable, it is possible to pass command-line arguments:
+Pass command-line arguments to the compiled executable:
 
 ```json
 "args": ["arg1", "arg2"]
@@ -56,17 +79,17 @@ When running the compiled executable, it is possible to pass command-line argume
 
 ### Working Directory
 
-By default the compiled executable will be launched in the folder containing the Eiffel file. Specify a different folder as follows:
+Specify the working directory for execution of the compiled executable (default: folder containing the Eiffel file):
 
 ```json
 "workingDir": "path/to/my/working/folder"
 ```
 
-Note that this pathname can contain environment variables of the form `$VAR` or `${VAR}`.
+Supports environment variables of the form `$VAR` or `${VAR}`.
 
 ### Environment Variables
 
-Environment variables needed to compile the Eiffel system and/or to run it can be specified with `environmentVariables`:
+Set environment variables for compilation and/or execution:
 
 ```json
 "environmentVariables": {
@@ -89,11 +112,10 @@ Environment variables needed to compile the Eiffel system and/or to run it can b
 }
 ```
 
-When running this launch configuration, the Eiffel class in the currently selected *Editor* panel will be compiled in the *Output* panel, but the compiled executable will not be executed.
+This configuration compiles the Eiffel class currently open in the *Editor* but **does not execute** the compiled executable.
 
-`compileOnly` indicates that the compiled executable will not be executed.
-
-The other configuration entries have already been explained above.
+`compileOnly` prevents execution.
+All other settings work as described above.
 
 ## Run Current Eiffel File
 
@@ -110,11 +132,11 @@ The other configuration entries have already been explained above.
 }
 ```
 
-When running this launch configuration, the executable file previously compiled (if there is one) for the Eiffel class in the currently selected *Editor* panel will be executed in the *Debug Console* panel.
+This configuration **runs an already-compiled executable** for the Eiffel class currently open in the *Editor*, in the *Debug Console* panel.
 
-`runOnly` indicates that no compilation will be performed.
-
-The other configuration entries have already been explained above. Note that even though there is no compilation, `buildDir` is necessary to locate the executable file.
+`runOnly` disables compilation.
+`buildDir` must still point to the folder containing the executable.
+All other settings work as described above.
 
 ## Compile & Run With Current ECF File
 
@@ -131,13 +153,13 @@ The other configuration entries have already been explained above. Note that eve
 }
 ```
 
-When running this launch configuration, the ECF file in the currently selected *Editor* panel will used to compile the Eiffel system it describes in the *Output* panel, and then executed in the *Debug Console* panel.
+This configuration compiles and runs the Eiffel system described by the **ECF file currently open** in the *Editor*.
 
-In order to know more about ECF files, please read the *Gobo Eiffel* documentation [here](https://www.gobosoft.com/eiffel/gobo/library/tools/doc/ecf.html).
+Learn more about ECF files in the [Gobo Eiffel documentation](https://www.gobosoft.com/eiffel/gobo/library/tools/doc/ecf.html).
 
 ### ECF Target
 
-When the ECF file has several targets, the last one will be used by default to compile the Eiffel system. Choose another target with:
+If the ECF defines multiple targets, the last one is used by default. Specify another target:
 
 ```json
 "ecfTarget": "my_target"
@@ -145,28 +167,31 @@ When the ECF file has several targets, the last one will be used by default to c
 
 ### Compilation Options
 
-Compilation options can be specified using `compilationOptions`. For example:
+Use `compilationOptions` to pass flags to the compiler. For example:
 
 ```json
 "compilationOptions": ["--finalize"]
 ```
 
-can be used to compile an optimized executable, ready for release. The
-complete list of compilation options can be found in the *Gobo Eiffel Compiler* documentation [here](https://www.gobosoft.com/eiffel/gobo/tool/gec/doc/usage.html).
+compiles an optimized executable for release.
+See the full list of options in the [Gobo Eiffel Compiler documentation](https://www.gobosoft.com/eiffel/gobo/tool/gec/doc/usage.html).
 
 ### Build Directory
 
-By default, the compiled executable file as well as intermediary file will be generated in the folder containing the ECF file. The name of the executable file is inferred from the ECF description. Intermediate files will be found in a subfolder `.gobo`. These compilation artifacts can generated in another folder of your choice by telling the *Gobo Eiffel Compiler* to run in this folder:
+By default, executables and intermediate files are generated in the same folder as the ECF file.
+The executable name is inferred from the ECF description.
+Intermediate files go into a `.gobo` subfolder.
+To change the output location:
 
 ```json
 "buildDir": "path/to/my/build/folder"
 ```
 
-Note that this pathname can contain environment variables of the form `$VAR` or `${VAR}`.
+Supports environment variables of the form `$VAR` or `${VAR}`.
 
 ### Arguments
 
-When running the compiled executable, it is possible to pass command-line arguments:
+Pass command-line arguments to the compiled executable:
 
 ```json
 "args": ["arg1", "arg2"]
@@ -174,17 +199,17 @@ When running the compiled executable, it is possible to pass command-line argume
 
 ### Working Directory
 
-By default the compiled executable will be launched in the folder containing the Eiffel file. Specify a different folder as follows:
+Specify the working directory for execution of the compiled executable (default: folder containing the ECF file):
 
 ```json
 "workingDir": "path/to/my/working/folder"
 ```
 
-Note that this pathname can contain environment variables of the form `$VAR` or `${VAR}`.
+Supports environment variables of the form `$VAR` or `${VAR}`.
 
 ### Environment Variables
 
-Environment variables needed to compile the Eiffel system and/or to run it can be specified with `environmentVariables`:
+Set environment variables for compilation and/or execution:
 
 ```json
 "environmentVariables": {
@@ -208,11 +233,10 @@ Environment variables needed to compile the Eiffel system and/or to run it can b
 }
 ```
 
-When running this launch configuration, the ECF file in the currently selected *Editor* panel will used to compile the Eiffel system it describes in the *Output* panel, but the compiled executable will not be executed.
+This configuration compiles the Eiffel system described by the **ECF file currently open** in the *Editor* but **does not execute** the compiled executable.
 
-`compileOnly` indicates that the compiled executable will not be executed.
-
-The other configuration entries have already been explained above.
+`compileOnly` prevents execution.
+All other settings work as described above.
 
 ## Run With Current ECF File
 
@@ -230,11 +254,11 @@ The other configuration entries have already been explained above.
 }
 ```
 
-When running this launch configuration, the executable file previously compiled (if there is one) with the ECF file in the currently selected *Editor* panel will be executed in the *Debug Console* panel.
+This configuration **runs an already-compiled executable** for the Eiffel system described by the ECF file currently open in the *Editor*, in the *Debug Console* panel.
 
-`runOnly` indicates that no compilation will be performed.
-
-The other configuration entries have already been explained above. Note that even though there is no compilation, `ecfTarget` and `buildDir` are necessary to locate the executable file.
+`runOnly` disables compilation.
+`buildDir` must still point to the folder containing the executable.
+All other settings work as described above.
 
 ## Compile & Run Eiffel System
 
@@ -253,9 +277,9 @@ The other configuration entries have already been explained above. Note that eve
 }
 ```
 
-Running this launch configuration is similar to *Compile & Run With ECF File* above, except that the ECF file is explicitly specified with `ecfFile` instead of using the file in the currently selected *Editor* panel. This is just a template to compile and run the *Hello World* example included in the *Gobo Eiffel* installation. Replace `ecfFile` and `ecfTarget` with your own values.
+This configuration is similar to [*Compile & Run With Current ECF File*](#compile--run-with-current-ecf-file) above, except that the ECF file is explicitly specified with `ecfFile` instead of using the file currently open in the *Editor*. This is just a template to compile and run the *Hello World* example included in the *Gobo Eiffel* installation. Replace `ecfFile` and `ecfTarget` with your own values.
 
-Note that this pathname for `ecfFile` can contain environment variables of the form `$VAR` or `${VAR}`.
+`ecfFile` supports environment variables of the form `$VAR` or `${VAR}`.
 
 If you need to compile several Eiffel systems, or need several compilation modes or several sets of arguments, you can add more such *Launch Configurations* by clicking on the *Add Configuration* button and selecting *Gobo Eiffel: Compile & Run Eiffel System*.
 
@@ -277,9 +301,9 @@ If you need to compile several Eiffel systems, or need several compilation modes
 }
 ```
 
-Running this launch configuration is similar to *Compile With ECF File* above, except that the ECF file is explicitly specified with `ecfFile` instead of using the file in the currently selected *Editor* panel. This is just a template to compile the *Hello World* example included in the *Gobo Eiffel* installation. Replace `ecfFile` and `ecfTarget` with your own values.
+This configuration compiles the Eiffel system described by the ECF file `ecfFile` but **does not execute** the compiled executable.
 
-Note that this pathname for `ecfFile` can contain environment variables of the form `$VAR` or `${VAR}`.
+All settings work as described above.
 
 If you need to compile several Eiffel systems, or need several compilation modes, you can add more such *Launch Configurations* by clicking on the *Add Configuration* button and selecting *Gobo Eiffel: Compile Eiffel System*.
 
@@ -300,8 +324,8 @@ If you need to compile several Eiffel systems, or need several compilation modes
 }
 ```
 
-Running this launch configuration is similar to *Run With ECF File* above, except that the ECF file is explicitly specified with `ecfFile` instead of using the file in the currently selected *Editor* panel. This is just a template to run the *Hello World* example included in the *Gobo Eiffel* installation. Replace `ecfFile` and `ecfTarget` with your own values.
+This configuration **runs an already-compiled executable** for the Eiffel system described by the ECF file `ecfFile`, in the *Debug Console* panel.
 
-Note that this pathname for `ecfFile` can contain environment variables of the form `$VAR` or `${VAR}`.
+All settings work as described above.
 
 If you need to compile several Eiffel systems, or need several sets of arguments, you can add more such *Launch Configurations* by clicking on the *Add Configuration* button and selecting *Gobo Eiffel: Run Eiffel System*.
