@@ -177,6 +177,7 @@ export function activateEiffelCompiler(context: vscode.ExtensionContext) {
 			filePath = editor.document.uri.fsPath;
 		}
 		const defaultCwd = ((fs.existsSync(filePath)) ? path.dirname(filePath) : '.');
+		let ecfTarget = undefined;
 		let compilationOptions = [];
 		let buildDir = defaultCwd;
 		let args = [];
@@ -188,6 +189,7 @@ export function activateEiffelCompiler(context: vscode.ExtensionContext) {
 		const configName = 'Compile & Run With Current ECF File';
 		const config = eiffelConfigs.find(c => c.name === configName);
 		if (config) {
+			ecfTarget = config.ecfTarget;
 			compilationOptions = config.compilationOptions ?? [];
 			const configBuildDir = config.buildDir;
 			buildDir = ((configBuildDir) ? configBuildDir : defaultCwd);
@@ -200,7 +202,7 @@ export function activateEiffelCompiler(context: vscode.ExtensionContext) {
 			vscode.window.showInformationMessage(`Configure this command using the Launch config "${configName}"`);
 		}
 
-		await compileAndRunEiffelSystem(filePath, undefined, compilationOptions, buildDir, args, workingDir, environmentVariables, context);
+		await compileAndRunEiffelSystem(filePath, ecfTarget, compilationOptions, buildDir, args, workingDir, environmentVariables, context);
 	});
 	context.subscriptions.push(compileAndRunWithEcfFileCmd);
 
@@ -218,6 +220,7 @@ export function activateEiffelCompiler(context: vscode.ExtensionContext) {
 			filePath = editor.document.uri.fsPath;
 		}
 		const defaultCwd = ((fs.existsSync(filePath)) ? path.dirname(filePath) : '.');
+		let ecfTarget = undefined;
 		let compilationOptions = [];
 		let buildDir = defaultCwd;
 		let environmentVariables = process.env;
@@ -227,6 +230,7 @@ export function activateEiffelCompiler(context: vscode.ExtensionContext) {
 		const configName = 'Compile With Current ECF File';
 		const config = eiffelConfigs.find(c => c.name === configName);
 		if (config) {
+			ecfTarget = config.ecfTarget;
 			compilationOptions = config.compilationOptions ?? [];
 			const configBuildDir = config.buildDir;
 			buildDir = ((configBuildDir) ? configBuildDir : defaultCwd);
@@ -236,7 +240,7 @@ export function activateEiffelCompiler(context: vscode.ExtensionContext) {
 			vscode.window.showInformationMessage(`Configure this command using the Launch config "${configName}"`);
 		}
 
-		await compileEiffelSystem(filePath, undefined, compilationOptions, buildDir, environmentVariables, context);
+		await compileEiffelSystem(filePath, ecfTarget, compilationOptions, buildDir, environmentVariables, context);
 	});
 	context.subscriptions.push(compileWithEcfFileCmd);
 
@@ -254,6 +258,7 @@ export function activateEiffelCompiler(context: vscode.ExtensionContext) {
 			filePath = editor.document.uri.fsPath;
 		}
 		const defaultCwd = ((fs.existsSync(filePath)) ? path.dirname(filePath) : '.');
+		let ecfTarget = undefined;
 		let buildDir = defaultCwd;
 		let args = [];
 		let workingDir = defaultCwd;
@@ -264,6 +269,7 @@ export function activateEiffelCompiler(context: vscode.ExtensionContext) {
 		const configName = 'Run With Current ECF File';
 		const config = eiffelConfigs.find(c => c.name === configName);
 		if (config) {
+			ecfTarget = config.ecfTarget;
 			const configBuildDir = config.buildDir;
 			buildDir = ((configBuildDir) ? configBuildDir : defaultCwd);
 			args = config.args ?? [];
@@ -275,7 +281,7 @@ export function activateEiffelCompiler(context: vscode.ExtensionContext) {
 			vscode.window.showInformationMessage(`Configure this command using the Launch config "${configName}"`);
 		}
 
-		await runEiffelSystemInTerminal(filePath, undefined, buildDir, args, workingDir, environmentVariables, context);
+		await runEiffelSystemInTerminal(filePath, ecfTarget, buildDir, args, workingDir, environmentVariables, context);
 	});
 	context.subscriptions.push(runWithEcfFileCmd);
 
