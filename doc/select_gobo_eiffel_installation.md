@@ -1,44 +1,64 @@
 # Select Gobo Eiffel Installation
 
-This dialog will be shown the first time you use this extension.
+The first time you use this extension, you’ll be asked to configure a **Gobo Eiffel installation**.
+This is required because the extension relies on the [Gobo Eiffel](https://www.gobosoft.com) toolchain to compile, run, and analyze your Eiffel code.
 
-![Select New Gobo Eiffel Installation](../images/select_new_gobo_eiffel_installation.png)
+![Select Gobo Eiffel Installation](../images/select_gobo_eiffel_installation.png)
 
-This is because it uses the [*Gobo Eiffel*](https://www.gobosoft.com) toolchain to perform some actions on your Eiffel code.
+> 🟢 **Recommended for beginners**: Simply choose **Download Latest & Install**.
+> The extension will automatically set up the most recent release of *Gobo Eiffel* for you.
 
-## Download Latest & Install
+## 📥 Download Latest & Install
 
-*Gobo Eiffel* releases are available on [GitHub](https://github.com/gobo-eiffel/gobo/releases). By default, the release tagged as *latest* will be downloaded and installed on your computer. You will be asked to select an installation folder. This folder should exist. *Gobo Eiffel* will be install in a subfolder of the form:
+The easiest option is to let the extension download and install the most recent *Gobo Eiffel* release.
+Releases are hosted on [GitHub](https://github.com/gobo-eiffel/gobo/releases), and by default the one tagged as **latest** will be used.
+
+You’ll be prompted to choose an installation folder. The toolchain will then be installed inside a subfolder such as:
 
 ```shell
 path/to/install-folder/gobo-<version>
 ```
 
-Progress information will be shown in the bottom-right corner of VC Code during download and installation.
+A progress indicator will appear in the bottom-right corner of VS Code during download and installation:
 
 ![Progress Download](../images/progress_download.png)
 ![Progress Install](../images/progress_install.png)
 
-## Select Existing Installation
+## 📂 Use An Existing Installation
 
-If you are not new to Eiffel, you might already have *Gobo Eiffel* installed on your computer. You may decide to let the VC Code extension use this *Gobo Eiffel* installation. Select the corresponding folder (the root folder containing `bin/`, `library/`, `tool/`, etc.).
+If you already have *Gobo Eiffel* installed on your machine, you can simply point the extension to it.
+Choose the **root folder** of your installation (the one containing `bin/`, `library/`, `tool/`, etc.).
 
-Note that in order to work properly, it is recommended to use the most recent version of *Gobo Eiffel*.
+> 💡 For best results, we recommend using the most recent release of Gobo Eiffel.
 
-## Select Another Gobo Eiffel Installation
+## 🔄 Switch To Another Installation
 
-Use the *Command Palette* command **Gobo Eiffel: Select Gobo Eiffel Installation** to change the version of *Gobo Eiffel*.
+At any time, you can change the selected installation from the *Command Palette* with the command **Gobo Eiffel: Select Gobo Eiffel Installation**.
 
-![Select Another Gobo Eiffel Installation](../images/select_gobo_eiffel_installation.png)
 
-## Automatically Check For Updates
 
-By default, VS Code will check once every 24 hours whether a newer version of *Gobo Eiffel* is available. If so, you will be prompted to download and install it.
+![Switch To Another Installation](../images/switch_gobo_eiffel_installation.png)
 
-You can disable this check with the user setting `gobo-eiffel.automaticUpdateCheck`.
+## ✅ Automatically Check For Updates
+
+By default, the extension automatically checks once every 24 hours for newer releases of *Gobo Eiffel*.
+If a newer version is found, you’ll be prompted to download and install it.
+
+You can turn off this behavior by setting:
+
+```json
+"gobo-eiffel.automaticUpdateCheck": false
+```
+
+in the `settings.json` file, or from the UI:
 
 ![Automatic Check For Updates](../images/automatic_check_for_updates.png)
 
-## Nightly Build
+## ⚡ Nightly Build (Advanced)
 
-For advanced users, it is possible to use the *Nightly Build* instead of the latest release of *Gobo Eiffel*. Set the user setting `gobo-eiffel.useNightlyBuild`.
+If you prefer cutting-edge features, you can switch from stable releases of *Gobo Eiffel* to the **nightly build**.
+Enable it with the following setting:
+
+```json
+"gobo-eiffel.useNightlyBuild": true
+```
