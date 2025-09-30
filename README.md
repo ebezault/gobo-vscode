@@ -1,71 +1,92 @@
-# gobo-eiffel README
+# Gobo Eiffel for Visual Studio Code
 
-This is the README for your extension "gobo-eiffel". After writing up a brief description, we recommend including the following sections.
+Bring the power of the [*Gobo Eiffel*](https://www.gobosoft.com) toolchain directly into Visual Studio Code, providing full language support for the
+[Eiffel programming language](https://en.wikipedia.org/wiki/Eiffel_%28programming_language%29).
+This extension lets you **edit, compile and run Eiffel programs** seamlessly — ideal for both **beginners discovering Eiffel** and **experienced developers** who want an efficient workflow.
 
-## Features
+## ✨ Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+* **Syntax highlighting & language support**
 
-For example if there is an image subfolder under your extension project workspace:
+  Eiffel keywords, comments and strings are highlighted using an up-to-date Eiffel grammar.
 
-\!\[feature X\]\(images/feature-x.png\)
+  ![Syntax highlighting example](images/syntax_highlighting.png)
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+* **Compile & run from VS Code**
 
-## Requirements
+  * Command to [compile the current Eiffel file](doc/compile_and_run_in_terminal.md) from the *Command Palette* or contextual menus.
+  * Automatically run it after compilation in the *Terminal* panel.
+  * Set arguments and environment variables using *Launch Configurations*.
+  * Generate and use ECF files for more advanced compilation settings.
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+  ![Compile & Run Eiffel File](images/compile_and_run_in_terminal.gif)
 
-## Extension Settings
+* **Inline error reporting**
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+  Compilation errors are shown as red squiggles in the editor and in the ***Problems*** panel.
+  Clicking an error jumps to its location in your file.
 
-For example:
+  ![Errors in Problems panel](images/problems.png)
 
-This extension contributes the following settings:
+* **Integrated Eiffel Terminal**
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+  Open a pre-configured terminal with *Gobo Eiffel*'s environment set up, so you can run commands directly.
 
-## Known Issues
+  ![Integrated terminal](images/new_gobo_eiffel_terminal.gif)
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+* **Debug configurations**
 
-## Release Notes
+  Quickly create [launch configurations](doc/compile_and_run_in_debug_console.md) for your Eiffel programs.  
+  Pass custom arguments and environment variables, and compile & run, compile only or run only from the ***Run And Debug*** panel or by pressing `F5`.
 
-Users appreciate release notes as you update your extension.
+  ![Compile & run Eiffel in Debugger](images/compile_and_run_in_debugger.gif)
 
-### 1.0.0
+* **Automatic installation of Gobo Eiffel binaries**
 
-Initial release of ...
+  If needed, the extension can [download and install](doc/select_gobo_eiffel_installation.md) *Gobo Eiffel* and automatically check for updates.
 
-### 1.0.1
+## ⚙️ User Settings
 
-Fixed issue #.
+You can customize the extension in VS Code’s **Settings** (File → Preferences → Settings → Extensions → Gobo Eiffel) or via `settings.json`.
 
-### 1.1.0
+| Setting | Description | Default |
+|---------|-------------|---------|
+| **`gobo-eiffel.automaticUpdateCheck`** | Automatically checks for new Gobo Eiffel releases. |`true` |
+| **`gobo-eiffel.useNightlyBuild`** | Use Gobo Eiffel nightly build instead of the latest release. | `false` |
 
-Added features X, Y, and Z.
+> You can also create multiple launch configurations in `.vscode/launch.json` with different arguments or environment variables for each program.
+
+## 📦 Commands
+
+All commands are available from the **Command Palette** or contextual menus:
+
+* [Compile & Run Eiffel File](doc/compile_and_run_in_terminal.md#compile--run-eiffel-file)
+* [Compile Eiffel File](doc/compile_and_run_in_terminal.md#compile-eiffel-file)
+* [Run Eiffel File](doc/compile_and_run_in_terminal.md#run-eiffel-file)
+* [Lint Eiffel File](doc/compile_and_run_in_terminal.md#lint-eiffel-file)
+* [Compile & Run With ECF File](doc/compile_and_run_in_terminal.md#compile--run-with-ecf-file)
+* [Compile With ECF File](doc/compile_and_run_in_terminal.md#compile-with-ecf-file)
+* [Run With ECF File](doc/compile_and_run_in_terminal.md#run-with-ecf-file)
+* [Lint With ECF File](doc/compile_and_run_in_terminal.md#run-with-ecf-file)
+* [Create ECF File](doc/create_ecf_file.md)
+* [New Gobo Eiffel Terminal](doc/new_gobo_eiffel_terminal.md)
+
+## 💡 Tips for Beginners
+
+* Start by opening a [single `.e` file](doc/hello_world.md) and run `Compile & Run Eiffel File` — no project setup needed.
+* Errors appear directly in the editor with explanations in the *Problems* panel.
+
+## 💪 Tips for Advanced Users
+
+* Use multiple launch configurations to run different test scenarios.
+* The integrated terminal has `$GOBO` and other environment variables set automatically.
+
+## 📚 More Information
+
+* [Gobo Eiffel Documentation](https://www.gobosoft.com)
+* [Gobo Eiffel Code Repository](https://github.com/gobo-eiffel)
+* [Eiffel Language Reference](https://www.eiffel.org)
 
 ---
 
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+Enjoy productive Eiffel development right inside VS Code!
