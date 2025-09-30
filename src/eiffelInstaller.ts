@@ -52,9 +52,9 @@ export async function selectOrDownloadAndInstall(context: vscode.ExtensionContex
 			if (goboVersion) {
 				goboFullVersion = ` (version ${goboVersion.year}.${goboVersion.month}.${goboVersion.day}+${goboVersion.commit})`;
 			}
-			message = `Currently selected Gobo Eiffel installation${goboFullVersion}:\n\n${goboPath}\n\nSelect new Gobo Eiffel installation:`;
+			message = `Currently selected Gobo Eiffel installation${goboFullVersion}:\n\n${goboPath}\n\nSwitch to another Gobo Eiffel installation.`;
 		} else {
-			message = `No Gobo Eiffel installation currently selected.\nSelect Gobo Eiffel installation:`;
+			message = `No Gobo Eiffel installation currently selected.\nSelect Gobo Eiffel installation.`;
 		}
 	}
 	const choice = await vscode.window.showInformationMessage(
