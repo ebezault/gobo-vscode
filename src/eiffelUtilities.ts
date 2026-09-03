@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as cp from 'child_process';
 import { getOrInstallOrUpdateGoboEiffel } from './eiffelInstaller';
 
 /**
@@ -252,5 +253,21 @@ export async function openFileInEditor(filePath: string) {
 		await vscode.window.showTextDocument(doc); // show in editor
 	} catch (err) {
 		vscode.window.showErrorMessage(`Failed to open file: ${err}`);
+	}
+}
+
+/**
+ * Is the version of `tar` the GNU tar?
+ */
+export function isGnuTar(): boolean {
+	try {
+		const result = cp.spawnSync('tar', ['--version'], {
+			encoding: 'utf8'
+		});
+
+		const output = `${result.stdout}${result.stderr}`;
+		return result.status === 0 && output.includes('GNU tar');
+	} catch {
+		return false;
 	}
 }
