@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as https from 'https';
 import { path7za } from '7zip-bin';
 import { restartLanguageServer } from './eiffelLanguageServer';
-import { ensureEmptyDir } from './eiffelUtilities';
+import { ensureEmptyDir, isGnuTar } from './eiffelUtilities';
 
 export function activateEiffelInstaller(context: vscode.ExtensionContext) {
 	const selectGoboEiffelInstallationCmd = vscode.commands.registerCommand('gobo-eiffel.selectGoboEiffelInstallation', async (uri?: vscode.Uri, uris?: vscode.Uri[]) => {
@@ -277,7 +277,11 @@ async function downloadAndInstall(fileUrl: string, fileName: string, version: Go
 	// Detect extension and extract accordingly
 	if (fileName.endsWith('.tar.xz')) {
 		try {
-			await extractTarXzWithProgress(destFile, installDir);
+			if (isGnuTar()) {
+				await extractGnuTarXzWithProgress(destFile, installDir);
+			} else {
+				await extractTarXzWithProgress(destFile, installDir);
+			}
 		} catch (err) {
 			vscode.window.showErrorMessage('Extraction failed: ' + String(err));
 			return;
@@ -652,9 +656,94 @@ export async function extract7zWithProgress(
  * Report progress via vscode.withProgress (percentage).
  * @param compressedFile Name of compressed file
  * @param extractedDir Where to copy the extracted files
- * @returns a Promise that resolves when the process exits.
+ * @returns A Promise that resolves when the process exits.
  */
 export async function extractTarXzWithProgress(
+	compressedFile: string,
+	extractedDir: string
+): Promise<void> {
+	if (!fs.existsSync(compressedFile)) {
+		throw new Error(`Archive file not found: ${compressedFile}`);
+	}
+
+	await vscode.window.withProgress(
+		{
+			location: vscode.ProgressLocation.Notification,
+			title: `Installing ${path.basename(compressedFile)}`,
+			cancellable: false
+		},
+		async (progress) => {
+			return new Promise<void>((resolve, reject) => {
+				progress.report({ increment: 0, message: '0%' });
+				// First, list the archive contents to count entries.
+				const listProc = cp.spawn('tar', ['-tf', compressedFile], { stdio: ['ignore', 'pipe', 'pipe']});
+				let totalFiles = 0;
+				let listBuffer = '';
+				listProc.stdout.setEncoding('utf8');
+				listProc.stdout.on('data', (buf: string) => {
+					listBuffer += buf;
+					const lines = listBuffer.split('\n');
+					listBuffer = lines.pop() ?? '';
+					totalFiles += lines.length;
+				});
+				listProc.on('error', (err) => reject(err));
+
+				listProc.on('close', (code) => {
+					// Account for the last line if it wasn't terminated by a newline.
+					if (listBuffer.length > 0) {
+						totalFiles++;
+					}
+
+					if (code !== 0) {
+						return reject(new Error(`tar list failed with code ${code}`));
+					}
+					// Extract with output parsing.
+					const args = ['-xJvf', compressedFile, '-C', extractedDir];
+					const extractProc = cp.spawn('tar', args, { stdio: ['ignore', 'pipe', 'pipe']});
+
+					let lastPercent = -1;
+					let extractedFiles = 0;
+					let extractBuffer = '';
+					extractProc.stdout.setEncoding('utf8');
+					extractProc.stdout.on('data', (buf: string) => {
+						extractBuffer += buf;
+						const lines = extractBuffer.split('\n');
+						extractBuffer = lines.pop() ?? '';
+						extractedFiles += lines.length;
+						if (totalFiles > 0) {
+							const percent = Math.min( 100, Math.floor((extractedFiles / totalFiles) * 100));
+							if (percent > lastPercent) {
+								progress.report({ increment: percent - lastPercent, message: `${percent}%` });
+								lastPercent = percent;
+							}
+						}
+					});
+
+					extractProc.on('close', (code) => {
+						if (lastPercent < 100) {
+							progress.report({ increment: 100 - Math.max(lastPercent, 0), message: '100%' });
+						}
+						if (code === 0) {
+							resolve();
+						} else {
+							reject(new Error(`tar extraction failed with code ${code}`));
+						}
+					});
+					extractProc.on('error', (err) => reject(err));
+				});
+			});
+		}
+	);
+}
+
+/**
+ * Extract a .tar.xz archive using GNU tar.
+ * Report progress via vscode.withProgress (percentage).
+ * @param compressedFile Name of compressed file
+ * @param extractedDir Where to copy the extracted files
+ * @returns a Promise that resolves when the process exits.
+ */
+export async function extractGnuTarXzWithProgress(
 	compressedFile: string,
 	extractedDir: string
 ): Promise<void> {

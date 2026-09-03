@@ -1,7 +1,19 @@
-﻿# Changelog  
+﻿# Changelog
 
 All notable changes to the **Gobo Eiffel VS Code Extension** will be documented
-here.  
+here.
+
+---
+
+## [1.5.1] – 3 September 2026
+
+### Fixed
+
+* 🍎 **Gobo Eiffel installation on macOS**:
+
+  * Fixed an issue that prevented Gobo Eiffel from being installed on macOS.
+  * The installation process now correctly handles the system `tar` implementation
+    used by macOS.
 
 ---
 
