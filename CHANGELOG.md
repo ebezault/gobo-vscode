@@ -5,6 +5,18 @@ here.
 
 ---
 
+## [1.5.2] – 14 October 2026
+
+### Fixed
+
+* 🍎 **Gobo Eiffel installation on macOS**:
+
+  * Fixed an issue that prevented Gobo Eiffel from being installed on macOS:
+    * The progress bar was blocked at 0% because it was reading the output
+      of `tar` from `stdout` instead of `stderr`.
+
+---
+
 ## [1.5.1] – 3 September 2026
 
 ### Fixed
@@ -12,8 +24,8 @@ here.
 * 🍎 **Gobo Eiffel installation on macOS**:
 
   * Fixed an issue that prevented Gobo Eiffel from being installed on macOS.
-  * The installation process now correctly handles the system `tar` implementation
-    used by macOS.
+    * The installation process now correctly handles the system `tar`
+      implementation used by macOS.
 
 ---
 
