@@ -676,7 +676,7 @@ export async function extractTarXzWithProgress(
 			return new Promise<void>((resolve, reject) => {
 				progress.report({ increment: 0, message: '0%' });
 				// First, list the archive contents to count entries.
-				const listProc = cp.spawn('tar', ['-tf', compressedFile], { stdio: ['ignore', 'pipe', 'pipe']});
+				const listProc = cp.spawn('tar', ['-tf', compressedFile], { stdio: ['ignore', 'pipe', 'ignore']});
 				let totalFiles = 0;
 				let listBuffer = '';
 				listProc.stdout.setEncoding('utf8');
@@ -699,13 +699,13 @@ export async function extractTarXzWithProgress(
 					}
 					// Extract with output parsing.
 					const args = ['-xJvf', compressedFile, '-C', extractedDir];
-					const extractProc = cp.spawn('tar', args, { stdio: ['ignore', 'pipe', 'pipe']});
+					const extractProc = cp.spawn('tar', args, { stdio: ['ignore', 'ignore', 'pipe']});
 
 					let lastPercent = -1;
 					let extractedFiles = 0;
 					let extractBuffer = '';
-					extractProc.stdout.setEncoding('utf8');
-					extractProc.stdout.on('data', (buf: string) => {
+					extractProc.stderr.setEncoding('utf8');
+					extractProc.stderr.on('data', (buf: string) => {
 						extractBuffer += buf;
 						const lines = extractBuffer.split('\n');
 						extractBuffer = lines.pop() ?? '';
