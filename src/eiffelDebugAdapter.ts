@@ -1,15 +1,15 @@
 import * as vscode from 'vscode';
-import * as cp from 'child_process';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 import { compileEiffelSystem, getExecutableName, getEnvironmentVariables } from './eiffelCompiler';
 import { expandEnvVars } from './eiffelUtilities';
+import { EiffelApplication, EiffelApplicationReply } from './eiffelDebugger';
 
 export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 	// Register debug configuration provider
 	const provider: vscode.DebugConfigurationProvider = {
-		async resolveDebugConfiguration(folder, config, token) {
+		async resolveDebugConfiguration(folder, config) {
 			// Add missing parts to the Launch config before executing it.
 			config = config || {};
 			if (!config.type) {
@@ -47,230 +47,377 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 	// Register debug adapter factory
 	const factory: vscode.DebugAdapterDescriptorFactory = {
 		createDebugAdapterDescriptor(session: vscode.DebugSession) {
-			// Minimal stub DebugAdapter
 			const emitter = new vscode.EventEmitter<vscode.DebugProtocolMessage>();
-			const runCtx: RunContext = {};
+			const application = new EiffelApplication();
 
-			const stubAdapter: vscode.DebugAdapter = {
-				onDidSendMessage: emitter.event, // <-- required property
-				handleMessage: (message: any) => {
-					// Only handle requests.
-					if (message?.type !== 'request') {
-						return;
-					}
-					const cmd = message.command;
-					// Action when the Stop button is pressed.
-					if (cmd === 'disconnect') {
-						if (runCtx.child) {
-							try { runCtx.child.kill(); } catch (e) { /* ignore */ }
-						}
-						// Acknowledge disconnect request
-						emitter.fire({
-							type: 'response',
-							request_seq: message.seq,
-							success: true,
-							command: 'disconnect'
-						});
-						// End session
-						emitter.fire({ type: 'event', event: 'terminated', body: {} });
-						return;
-					}
+			let terminated = false;
+			let launched = false;
+			let configurationDone = false;
+			let nextVariableReference = 1;
 
-					// Send the input from Debug Console to the program stdin.
-					if (cmd === 'evaluate') {
-						const expr: string | undefined = message.arguments?.expression;
-						const context: string | undefined = message.arguments?.context;
+			// These maps are used by the DAP scopes/variables requests.
+			const variableHandles = new Map<number, unknown>();
 
-						// Only treat REPL evaluate as stdin input (guard by context if you want)
-						if (typeof expr === 'string' && (context === 'repl' || context === undefined)) {
-							if (runCtx.child?.stdin && runCtx.child.stdin.writable) {
-								// Send the expression as a line to stdin
-								runCtx.child.stdin.write(expr + '\n');
-							}
-							// Respond to the evaluate request so VSCode is happy
-							emitter.fire({
-								type: 'response',
-								request_seq: message.seq,
-								success: true,
-								command: 'evaluate',
-								body: { result: '', variablesReference: 0 }
-							});
-						} else {
-							// Not handled — send a default response
-							emitter.fire({
-								type: 'response',
-								request_seq: message.seq,
-								success: true,
-								command: 'evaluate',
-								body: { result: '', variablesReference: 0 }
-							});
-						}
-						return;
-					}
-					// Older/custom 'input' request fallback (some clients)
-					if (cmd === 'input') {
-						const inputData = message.arguments?.text ?? '';
-						if (runCtx.child?.stdin && runCtx.child.stdin.writable) {
-							runCtx.child.stdin.write(inputData + '\n');
-						}
-						emitter.fire({
-							type: 'response',
-							request_seq: message.seq,
-							success: true,
-							command: 'input'
-						});
-						return;
-					}
-				},
-				dispose: () => emitter.dispose()
-			};
-
-			const filePath = session.configuration.ecfFile ?? '';
-			const defaultCwd = ((fs.existsSync(filePath)) ? path.dirname(filePath) : '.');
-			const ecfTarget = session.configuration.ecfTarget;
-			const compilationOptions = session.configuration.compilationOptions ?? [];
-			const configBuildDir = session.configuration.buildDir;
-			const buildDir = ((configBuildDir) ? configBuildDir : defaultCwd);
-			const args = session.configuration.args ?? [];
-			const configWorkingDir = session.configuration.workingDir;
-			const workingDir = ((configWorkingDir) ? configWorkingDir : defaultCwd);
-			const userEnv = session.configuration.environmentVariables ?? {};
-			const environmentVariables = {...process.env, ...userEnv};
-			const compileOnly = session.configuration.compileOnly ?? false;
-			const runOnly = session.configuration.runOnly ?? false;
-
-			if (runOnly) {
-				runEiffelSystemInDebugConsole(filePath, ecfTarget, buildDir, args, workingDir, environmentVariables, context, emitter, runCtx);
-			} else {
-				compileEiffelSystem(filePath, ecfTarget, compilationOptions, buildDir, environmentVariables, context).then((code) => {
-					if (!compileOnly && code === 0) {
-						runEiffelSystemInDebugConsole(filePath, ecfTarget, buildDir, args, workingDir, environmentVariables, context, emitter, runCtx);
-					} else {
-						// End session
-						emitter.fire({ type: 'event', event: 'terminated', body: {} });
-					}
-				});
+			function sendEvent(event: string, body: Record<string, unknown> = {}) {
+				emitter.fire({
+					type: 'event',
+					event,
+					body
+				} as vscode.DebugProtocolMessage);
 			}
 
-			return new vscode.DebugAdapterInlineImplementation(stubAdapter);
+			function sendResponse(
+				request: any,
+				success: boolean,
+				body?: unknown,
+				message?: string
+			) {
+				const response: any = {
+					type: 'response',
+					request_seq: request.seq,
+					success,
+					command: request.command
+				};
+				if (body !== undefined) {
+					response.body = body;
+				}
+				if (message) {
+					response.message = message;
+				}
+				emitter.fire(response);
+			}
+
+			function sendOutput(
+				output: string,
+				category: string = 'console'
+			) {
+				sendEvent('output', { category, output });
+			}
+
+			async function runtimeRequest(
+				command: string,
+				args: Record<string, unknown> = {}
+			): Promise<EiffelApplicationReply> {
+				const reply = await application.request(command, args);
+				if (!reply.success) {
+					throw new Error(reply.message || `Runtime command failed: ${command}`);
+				}
+				return reply;
+			}
+
+			async function handleRequest(request: any): Promise<void> {
+				const args = request.arguments ?? {};
+
+				try {
+					switch (request.command) {
+					case 'initialize':
+						sendResponse(request, true, {
+							supportsConfigurationDoneRequest: true,
+							supportsEvaluateForHovers: true,
+							supportsSetVariable: false,
+							supportsTerminateRequest: true,
+							supportsConditionalBreakpoints: false,
+							supportsHitConditionalBreakpoints: false,
+							supportsFunctionBreakpoints: false,
+							supportsStepBack: false,
+							supportsRestartRequest: false
+						});
+						return;
+
+					case 'launch': {
+						if (launched) {
+							throw new Error('Eiffel application has already been launched.');
+						}
+						launched = true;
+
+						const filePath = session.configuration.ecfFile ?? '';
+						const defaultCwd = fs.existsSync(filePath) ? path.dirname(filePath) : '.';
+						const ecfTarget = session.configuration.ecfTarget;
+						const compilationOptions = session.configuration.compilationOptions ?? [];
+						const buildDir = session.configuration.buildDir || defaultCwd;
+						const workingDir = session.configuration.workingDir || defaultCwd;
+						const args: string[] = session.configuration.args ?? [];
+						const userEnv = session.configuration.environmentVariables ?? {};
+						const environmentVariables: NodeJS.ProcessEnv = {...process.env, ...userEnv};
+						const compileOnly = session.configuration.compileOnly ?? false;
+						const runOnly = session.configuration.runOnly ?? false;
+
+						if (!runOnly) {
+							const code = await compileEiffelSystem(
+								filePath,
+								ecfTarget,
+								compilationOptions,
+								buildDir,
+								environmentVariables,
+								context
+							);
+
+							if (compileOnly || code !== 0) {
+								sendResponse(request, true);
+								sendOutput(
+									compileOnly
+										? 'Compilation completed; execution skipped.\n'
+										: `Compilation failed with exit code ${code}.\n`
+								);
+								terminate();
+								return;
+							}
+						}
+
+						const name = await getExecutableName(filePath, ecfTarget, context);
+						if (!name) {
+							throw new Error(`No executable name found for ${filePath}`);
+						}
+
+						const exeFile = path.join(buildDir, name + (os.platform() === 'win32' ? '.exe' : ''));
+
+						if (!fs.existsSync(exeFile)) {
+							throw new Error(`Executable not found: ${exeFile}`);
+						}
+
+						if (os.platform() !== 'win32') {
+							try {
+								fs.accessSync(exeFile, fs.constants.X_OK);
+							} catch {
+								throw new Error(`File is not executable: ${exeFile}`);
+							}
+						}
+
+						application.start(exeFile, args, {
+							cwd: workingDir,
+							env: environmentVariables
+						});
+
+						sendResponse(request, true);
+						sendEvent('initialized');
+						return;
+					}
+
+					case 'setBreakpoints': {
+						const sourcePath = args.source?.path;
+						if (typeof sourcePath !== 'string') {
+							sendResponse(request, true, { breakpoints: [] });
+							return;
+						}
+
+						const requestedBreakpoints = Array.isArray(args.breakpoints)
+							? args.breakpoints.map((bp: any) => ({
+								line: bp.line,
+								column: bp.column
+							}))
+							: [];
+
+						const reply = await runtimeRequest('setBreakpoints', {
+							sourcePath,
+							breakpoints: requestedBreakpoints
+						});
+
+						sendResponse(request, true, {
+							breakpoints: reply.body?.breakpoints ?? []
+						});
+						return;
+					}
+
+					case 'configurationDone':
+						configurationDone = true;
+						if (application.isRunning) {
+							await runtimeRequest('configurationDone');
+						}
+						sendResponse(request, true);
+						return;
+
+					case 'threads': {
+						const reply = await runtimeRequest('threads');
+						sendResponse(request, true, {
+							threads: reply.body?.threads ?? []
+						});
+						return;
+					}
+
+					case 'stackTrace': {
+						const reply = await runtimeRequest('stackTrace', {
+							threadId: args.threadId,
+							startFrame: args.startFrame ?? 0,
+							levels: args.levels ?? 0
+						});
+						sendResponse(request, true, reply.body ?? {
+							stackFrames: [],
+							totalFrames: 0
+						});
+						return;
+					}
+
+					case 'scopes': {
+						const reply = await runtimeRequest('scopes', {
+							frameId: args.frameId
+						});
+						const scopes = reply.body?.scopes ?? [];
+
+						// Preserve runtime-supplied variable references.
+						for (const scope of scopes) {
+							if (typeof scope.variablesReference === 'number') {
+								variableHandles.set(
+									scope.variablesReference,
+									{ kind: 'runtime', reference: scope.variablesReference }
+								);
+							}
+						}
+						sendResponse(request, true, { scopes });
+						return;
+					}
+
+					case 'variables': {
+						const reply = await runtimeRequest('variables', {
+							variablesReference: args.variablesReference,
+							filter: args.filter,
+							start: args.start,
+							count: args.count
+						});
+						sendResponse(request, true, {
+							variables: reply.body?.variables ?? []
+						});
+						return;
+					}
+
+					case 'continue':
+					case 'next':
+					case 'stepIn':
+					case 'stepOut':
+					case 'pause': {
+						const runtimeCommand = request.command as
+							'continue' | 'next' | 'stepIn' | 'stepOut' | 'pause';
+
+						// The runtime should acknowledge the command promptly.
+						// The eventual stop/continue is reported as a runtime event.
+						const reply = await runtimeRequest(runtimeCommand, {
+							threadId: args.threadId
+						});
+
+						const body = request.command === 'continue'
+							? { allThreadsContinued: true }
+							: reply.body;
+
+						sendResponse(request, true, body);
+						return;
+					}
+
+					case 'evaluate': {
+						const expression = args.expression;
+						if (typeof expression !== 'string') {
+							sendResponse(request, false, undefined, 'Missing expression.');
+							return;
+						}
+
+						if (args.context === 'repl') {
+							// Keep the existing behavior: Debug Console REPL input
+							// is sent to the running program's standard input.
+							application.writeInput(expression + '\n');
+							sendResponse(request, true, {
+								result: '',
+								variablesReference: 0
+							});
+							return;
+						}
+
+						const reply = await runtimeRequest('evaluate', {
+							expression,
+							frameId: args.frameId,
+							context: args.context
+						});
+						sendResponse(request, true, reply.body ?? {
+							result: '',
+							variablesReference: 0
+						});
+						return;
+					}
+
+					case 'disconnect':
+					case 'terminate':
+						application.stop();
+						sendResponse(request, true);
+						terminate();
+						return;
+
+					default:
+						sendResponse(
+							request,
+							false,
+							undefined,
+							`Unsupported DAP request: ${request.command}`
+						);
+						return;
+					}
+				} catch (error) {
+					sendResponse(
+						request,
+						false,
+						undefined,
+						error instanceof Error ? error.message : String(error)
+					);
+				}
+			}
+
+			function terminate() {
+				if (terminated) {
+					return;
+				}
+				terminated = true;
+				sendEvent('terminated');
+			}
+
+			application.on('output', (output: {
+				category: string;
+				output: string;
+			}) => {
+				sendOutput(output.output, output.category);
+			});
+
+			application.on('runtimeEvent', (message: any) => {
+				// Runtime event bodies should follow the DAP event schema.
+				// For example: { event: "stopped", body: { reason: "breakpoint", threadId: 1 } }
+				if (typeof message.event === 'string') {
+					sendEvent(message.event, message.body ?? {});
+				}
+			});
+
+			application.on('runtimeError', (error: Error) => {
+				sendOutput(`Failed to run Eiffel application: ${error.message}\n`);
+				terminate();
+			});
+
+			application.on('protocolError', (message: string) => {
+				sendOutput(`Debugger protocol error: ${message}\n`);
+			});
+
+			application.on('exit', ({ code, signal }: {
+				code: number | null;
+				signal: NodeJS.Signals | null;
+			}) => {
+				sendOutput(`\nProcess exited with code ${code}` +
+					(signal ? ` (signal ${signal})` : '') + '\n');
+				terminate();
+			});
+
+			const adapter: vscode.DebugAdapter = {
+				onDidSendMessage: emitter.event,
+
+				handleMessage(message: any) {
+					if (message?.type === 'request') {
+						void handleRequest(message);
+					}
+				},
+
+				dispose() {
+					application.stop();
+					emitter.dispose();
+				}
+			};
+
+			return new vscode.DebugAdapterInlineImplementation(adapter);
 		}
 	};
 
 	context.subscriptions.push(
 		vscode.debug.registerDebugAdapterDescriptorFactory('eiffel', factory)
 	);
-}
-
-interface RunContext {
-	child?: cp.ChildProcessWithoutNullStreams;
-}
-
-/**
- * Run an already-compiled Eiffel system in the Debug Console.
- * @param filePath ECF file used for the compilation, or Eiffel file compiled
- * @param ecfTarget Target in ECF file (default: last target in ECF file)
- * @param buildDir Where to compile the executable
- * @param args Arguments to be passed to the executable
- * @param workingdDir Where to run the executable
- * @param env Environment variables for the execution
- * @param context VSCode extension context
- * @param emitter VSCode Event emitter
- * @param runCtx contains the child process being executed (so that we can kill it from outside this function)
- * @returns a Promise that resolves when the process exits.
- */
-async function runEiffelSystemInDebugConsole(
-	filePath: string,
-	ecfTarget: string | undefined,
-	buildDir: string,
-	args: string[],
-	workingdDir: string,
-	env: NodeJS.ProcessEnv,
-	context: vscode.ExtensionContext,
-	emitter: vscode.EventEmitter<vscode.DebugProtocolMessage>,
-	runCtx: RunContext
-): Promise<void> {
-	// Ensure the Debug Console (REPL) is visible
-	vscode.commands.executeCommand('workbench.debug.action.toggleRepl');
-
-	const name = await getExecutableName(filePath, ecfTarget, context);
-	if (!name) {
-		vscode.window.showErrorMessage(`No executable name found for ${filePath}`);
-		emitter.fire({
-			type: 'event',
-			event: 'output',
-			body: {
-				category: 'console',
-				output: `No executable name found for ${filePath}\n`
-			}
-		});
-		emitter.fire({ type: 'event', event: 'terminated', body: {} });
-		return;
-	}
-
-	const exeFile = path.join(buildDir, name + (os.platform() === 'win32' ? '.exe': ''));
-	try {
-		if (!fs.existsSync(exeFile)) {
-			throw new Error(`file not found: ${exeFile}`);
-		}
-		try {
-			fs.accessSync(exeFile, fs.constants.X_OK);
-		} catch {
-			throw new Error(`file is not executable: ${exeFile}`);
-		}
-	} catch (err: any) {
-		vscode.window.showErrorMessage(`Failed to launch program: ${err.message}`);
-		emitter.fire({
-			type: 'event',
-			event: 'output',
-			body: {
-				category: 'console',
-				output: `Failed to launch program: ${err.message}\n`
-			}
-		});
-		emitter.fire({ type: 'event', event: 'terminated', body: {} });
-		return;
-	}
-
-	const child = cp.spawn(exeFile, args, {
-		cwd: workingdDir,
-		env: env,
-		stdio: ['pipe', 'pipe', 'pipe']
-	});
-	runCtx.child = child;
-
-	// stdout → Debug Console
-	child.stdout.on('data', (data) => {
-		emitter.fire({
-			type: 'event',
-			event: 'output',
-			body: {
-				category: 'stdout',
-				output: data.toString()
-			}
-		});
-	});
-
-	// stderr → Debug Console
-	child.stderr.on('data', (data) => {
-		emitter.fire({
-			type: 'event',
-			event: 'output',
-			body: {
-				category: 'stderr',
-				output: data.toString()
-			}
-		});
-	});
-
-	child.on('exit', (code) => {
-		emitter.fire({
-			type: 'event',
-			event: 'output',
-			body: {
-				category: 'console',
-				output: `\nProcess exited with code ${code}\n`
-			}
-		});
-		emitter.fire({ type: 'event', event: 'terminated', body: {} });
-	});
 }
