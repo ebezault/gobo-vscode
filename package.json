@@ -591,6 +591,11 @@
 				}
 			}
 		],
+		"breakpoints": [
+			{
+				"language": "eiffel"
+			}
+		],
 		"submenus": [
 			{
 				"id": "gobo-eiffel.compileAndRunSubmenu",

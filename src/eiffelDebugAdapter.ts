@@ -94,13 +94,13 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 				sendEvent('output', { category, output });
 			}
 
-			async function runtimeRequest(
+			async function eiffelApplicationRequest(
 				command: string,
 				args: Record<string, unknown> = {}
 			): Promise<EiffelApplicationReply> {
 				const reply = await application.request(command, args);
 				if (!reply.success) {
-					throw new Error(reply.message || `Runtime command failed: ${command}`);
+					throw new Error(reply.message || `Eiffel application command failed: ${command}`);
 				}
 				return reply;
 			}
@@ -120,7 +120,24 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							supportsHitConditionalBreakpoints: false,
 							supportsFunctionBreakpoints: false,
 							supportsStepBack: false,
-							supportsRestartRequest: false
+							supportsRestartRequest: false,
+							exceptionBreakpointFilters: [
+								{
+									filter: 'raised',
+									label: 'Raised Exceptions',
+									default: false
+								},
+								{
+									filter: 'uncaught',
+									label: 'Uncaught Exceptions',
+									default: false
+								},
+								{
+									filter: 'userUncaught',
+									label: 'User Uncaught Exceptions',
+									default: false
+								}
+							]
 						});
 						return;
 
@@ -163,6 +180,9 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 								return;
 							}
 						}
+
+						// Ensure the Debug Console (REPL) is visible
+						vscode.commands.executeCommand('workbench.debug.action.toggleRepl');
 
 						const name = await getExecutableName(filePath, ecfTarget, context);
 						if (!name) {
@@ -207,7 +227,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							}))
 							: [];
 
-						const reply = await runtimeRequest('setBreakpoints', {
+						const reply = await eiffelApplicationRequest('setBreakpoints', {
 							sourcePath,
 							breakpoints: requestedBreakpoints
 						});
@@ -218,16 +238,22 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						return;
 					}
 
+					case 'setExceptionBreakpoints':
+						// Exception handling is not implemented in the Eiffel runtime yet.
+						// Acknowledge the request so VS Code can continue the debug session.
+						sendResponse(request, true);
+						return;
+
 					case 'configurationDone':
 						configurationDone = true;
 						if (application.isRunning) {
-							await runtimeRequest('configurationDone');
+							await eiffelApplicationRequest('configurationDone');
 						}
 						sendResponse(request, true);
 						return;
 
 					case 'threads': {
-						const reply = await runtimeRequest('threads');
+						const reply = await eiffelApplicationRequest('threads');
 						sendResponse(request, true, {
 							threads: reply.body?.threads ?? []
 						});
@@ -235,7 +261,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 					}
 
 					case 'stackTrace': {
-						const reply = await runtimeRequest('stackTrace', {
+						const reply = await eiffelApplicationRequest('stackTrace', {
 							threadId: args.threadId,
 							startFrame: args.startFrame ?? 0,
 							levels: args.levels ?? 0
@@ -248,7 +274,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 					}
 
 					case 'scopes': {
-						const reply = await runtimeRequest('scopes', {
+						const reply = await eiffelApplicationRequest('scopes', {
 							frameId: args.frameId
 						});
 						const scopes = reply.body?.scopes ?? [];
@@ -267,7 +293,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 					}
 
 					case 'variables': {
-						const reply = await runtimeRequest('variables', {
+						const reply = await eiffelApplicationRequest('variables', {
 							variablesReference: args.variablesReference,
 							filter: args.filter,
 							start: args.start,
@@ -284,12 +310,10 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 					case 'stepIn':
 					case 'stepOut':
 					case 'pause': {
-						const runtimeCommand = request.command as
-							'continue' | 'next' | 'stepIn' | 'stepOut' | 'pause';
-
-						// The runtime should acknowledge the command promptly.
+	
+						// The Eiffel application should acknowledge the command promptly.
 						// The eventual stop/continue is reported as a runtime event.
-						const reply = await runtimeRequest(runtimeCommand, {
+						const reply = await eiffelApplicationRequest(request.command, {
 							threadId: args.threadId
 						});
 
@@ -319,7 +343,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							return;
 						}
 
-						const reply = await runtimeRequest('evaluate', {
+						const reply = await eiffelApplicationRequest('evaluate', {
 							expression,
 							frameId: args.frameId,
 							context: args.context
@@ -372,7 +396,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 				sendOutput(output.output, output.category);
 			});
 
-			application.on('runtimeEvent', (message: any) => {
+			application.on('eiffelApplicationEvent', (message: any) => {
 				// Runtime event bodies should follow the DAP event schema.
 				// For example: { event: "stopped", body: { reason: "breakpoint", threadId: 1 } }
 				if (typeof message.event === 'string') {
@@ -380,7 +404,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 				}
 			});
 
-			application.on('runtimeError', (error: Error) => {
+			application.on('eiffelApplicationError', (error: Error) => {
 				sendOutput(`Failed to run Eiffel application: ${error.message}\n`);
 				terminate();
 			});

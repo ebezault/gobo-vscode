@@ -1,4 +1,5 @@
-import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
+import { spawn } from 'child_process';
+import type { ChildProcessWithoutNullStreams } from 'child_process';
 import { createInterface } from 'readline';
 import { EventEmitter } from 'events';
 import { Readable, Writable } from 'stream';
@@ -18,6 +19,7 @@ export interface EiffelApplicationOptions {
 export class EiffelApplication extends EventEmitter {
 	private child?: ChildProcessWithoutNullStreams;
 	private nextId = 1;
+	private exited = false;
 	private pending = new Map<number, {
 		resolve: (reply: EiffelApplicationReply) => void;
 		reject: (error: Error) => void;
@@ -25,6 +27,7 @@ export class EiffelApplication extends EventEmitter {
 
 	public get isRunning(): boolean {
 		return !!this.child &&
+			!this.exited &&
 			this.child.exitCode === null &&
 			this.child.signalCode === null;
 	}
@@ -71,7 +74,7 @@ export class EiffelApplication extends EventEmitter {
 					request.resolve(message as EiffelApplicationReply);
 				}
 			} else if (typeof message.event === 'string') {
-				this.emit('runtimeEvent', message);
+				this.emit('eiffelApplicationEvent', message);
 			}
 		});
 
@@ -90,7 +93,8 @@ export class EiffelApplication extends EventEmitter {
 		});
 
 		child.on('error', error => {
-			this.emit('runtimeError', error);
+			this.emit('eiffelApplicationError', error);
+			this.finish(null, null);
 		});
 
 		child.on('exit', (code, signal) => {
@@ -98,17 +102,29 @@ export class EiffelApplication extends EventEmitter {
 				request.reject(new Error('Eiffel process exited.'));
 			}
 			this.pending.clear();
-
-			this.emit('exit', { code, signal });
+			this.finish(code, signal);
 		});
+	}
+
+	private finish(
+		code: number | null,
+		signal: NodeJS.Signals | null
+	): void {
+		if (this.exited) {
+			return;
+		}
+
+		this.exited = true;
+		this.emit('exit', { code, signal });
 	}
 
 	public request(
 		command: string,
 		args: Record<string, unknown> = {}
 	): Promise<EiffelApplicationReply> {
+	
+if (command === "debugger supported") { // No Eiffel debugging yet.
 		const child = this.child;
-
 		if (!child || !this.isRunning) {
 			return Promise.reject(
 				new Error('Eiffel application is not running.')
@@ -120,7 +136,6 @@ export class EiffelApplication extends EventEmitter {
 		if (!(eiffelApplicationInput instanceof Writable) || !eiffelApplicationInput.writable) {
 			return Promise.reject(new Error('Eiffel application input pipe is closed.'));
 		}
-
 		const id = this.nextId++;
 		const message = JSON.stringify({ id, command, ...args });
 
@@ -134,11 +149,84 @@ export class EiffelApplication extends EventEmitter {
 				}
 			});
 		});
+} else {
+		// Temporary stub: the Eiffel runtime does not yet implement
+		// the debugging protocol. Return plausible replies immediately
+		// so the DAP adapter can respond to VS Code without hanging.
+		const id = this.nextId++;
+		let body: any = {};
+
+		switch (command) {
+		case 'setBreakpoints':
+			body = {
+				breakpoints: Array.isArray(args.breakpoints)
+					? (args.breakpoints as Array<{ line?: number; column?: number }>).map(bp => ({
+						verified: false,
+						line: bp.line,
+						column: bp.column,
+						message: 'Eiffel application debugging is not implemented yet.'
+					}))
+					: []
+			};
+			break;
+
+		case 'threads':
+			body = { threads: [] };
+			break;
+
+		case 'stackTrace':
+			body = {
+				stackFrames: [],
+				totalFrames: 0
+			};
+			break;
+
+		case 'scopes':
+			body = { scopes: [] };
+			break;
+
+		case 'variables':
+			body = { variables: [] };
+			break;
+
+		case 'evaluate':
+			body = {
+				result: '<debug evaluation unavailable>',
+				variablesReference: 0
+			};
+			break;
+
+		case 'continue':
+			body = { allThreadsContinued: true };
+			break;
+
+		case 'next':
+		case 'stepIn':
+		case 'stepOut':
+		case 'pause':
+		case 'configurationDone':
+			body = {};
+			break;
+
+		default:
+			return Promise.resolve({
+				id,
+				success: false,
+				message: `Unsupported Eiffel application command: ${command}`
+			});
+		}
+
+		return Promise.resolve({
+			id,
+			success: true,
+			body
+		});
+}
 	}
 
 	public writeInput(text: string): boolean {
 		const stdin = this.child?.stdin;
-		if (!stdin || !stdin.writable) {
+		if (!this.isRunning || !stdin || !stdin.writable) {
 			return false;
 		}
 		return stdin.write(text);
