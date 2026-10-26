@@ -271,3 +271,18 @@ export function isGnuTar(): boolean {
 		return false;
 	}
 }
+
+/**
+ * Big endian encoded version of `value` on two bytes.
+ * Raise an exception if `value` is negative or does not
+ * cannot be represented on two bytes.
+ */
+export function encodeUint16(value: number): Buffer {
+	if (!Number.isInteger(value) || value < 0 || value > 65535) {
+		throw new RangeError('Value must be an integer between 0 and 65535.');
+	}
+
+	const buffer = Buffer.alloc(2);
+	buffer.writeUInt16BE(value, 0);
+	return buffer;
+}

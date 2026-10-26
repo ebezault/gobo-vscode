@@ -887,12 +887,8 @@
 		}
 	},
 	"dependencies": {
-		"@vscode/debugadapter": "^1.68.0",
-		"@vscode/debugprotocol": "^1.68.0",
 		"7zip-bin": "^5.2.0",
 		"shell-quote": "^1.8.3",
-		"vscode-debugadapter": "^1.51.0",
-		"vscode-debugprotocol": "^1.51.0",
 		"vscode-languageclient": "^9.0.1",
 		"vscode-languageserver-protocol": "^3.17.5"
 	},
