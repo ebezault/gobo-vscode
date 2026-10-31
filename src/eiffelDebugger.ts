@@ -1,6 +1,5 @@
 import { spawn } from 'child_process';
 import type { ChildProcessWithoutNullStreams } from 'child_process';
-import { createInterface } from 'readline';
 import { EventEmitter } from 'events';
 import { Readable, Writable } from 'stream';
 import { encodeUint16 } from './eiffelUtilities';
@@ -24,10 +23,6 @@ export class DebugAdapterProtocol extends EventEmitter {
 	private eiffelDebuggerProtocol?: EiffelDebuggerProtocol;
 	private nextId = 1;
 	private exited = false;
-	private pending = new Map<number, {
-		resolve: (reply: DebugAdapterResponse) => void;
-		reject: (error: Error) => void;
-	}>();
 
 	public get isRunning(): boolean {
 		return !!this.child &&
@@ -69,24 +64,8 @@ export class DebugAdapterProtocol extends EventEmitter {
 		);
 		this.eiffelDebuggerProtocol = eiffelDebuggerProtocol;
 
-		const lines = createInterface({ input: this.eiffelDebuggerOutput });
-		lines.on('line', line => {
-			let message: any;
-			try {
-				message = JSON.parse(line);
-			} catch {
-				this.emit('eiffelDebuggerProtocolError', `Invalid Eiffel debugger message: ${line}`);
-				return;
-			}
-			if (typeof message.id === 'number') {
-				const request = this.pending.get(message.id);
-				if (request) {
-					this.pending.delete(message.id);
-					request.resolve(message as DebugAdapterResponse);
-				}
-			} else if (typeof message.event === 'string') {
-				this.emit('eiffelDebuggerEvent', message);
-			}
+		eiffelDebuggerProtocol.on('eiffelDebuggerEvent', message => {
+			this.emit('eiffelDebuggerEvent', message);
 		});
 
 		child.stdout.on('data', data => {
@@ -109,10 +88,9 @@ export class DebugAdapterProtocol extends EventEmitter {
 		});
 
 		child.on('exit', (code, signal) => {
-			for (const request of this.pending.values()) {
-				request.reject(new Error('Eiffel application exited.'));
-			}
-			this.pending.clear();
+			this.eiffelDebuggerProtocol?.abort(
+				new Error('Eiffel application exited.')
+			);
 			this.finish(code, signal);
 		});
 		await eiffelDebuggerProtocol.initialize();
@@ -142,18 +120,20 @@ export class DebugAdapterProtocol extends EventEmitter {
 		let body: any = {};
 
 		switch (command) {
-		case 'setBreakpoints':
-			body = {
-				breakpoints: Array.isArray(args.breakpoints)
-					? (args.breakpoints as Array<{ line?: number; column?: number }>).map(bp => ({
-						verified: false,
-						line: bp.line,
-						column: bp.column,
-						message: 'Eiffel application debugging is not implemented yet.'
-					}))
-					: []
-			};
+		case 'setBreakpoints': {
+			const eiffelDebuggerProtocol = this.eiffelDebuggerProtocol;
+			if (!eiffelDebuggerProtocol) {
+				throw new Error('Eiffel debugger is not available.');
+			}
+			const breakpoints = Array.isArray(args.breakpoints)
+				? (args.breakpoints as Array<{ line?: number }>).map(bp => ({
+					line: bp.line,
+				}))
+				: [];
+			const reply = await eiffelDebuggerProtocol.setBreakpoints(args.sourcePath, breakpoints);
+			body = reply.body;
 			break;
+		}
 		case 'configurationDone': {
 			const eiffelDebuggerProtocol = this.eiffelDebuggerProtocol;
 			if (!eiffelDebuggerProtocol) {
@@ -164,16 +144,22 @@ export class DebugAdapterProtocol extends EventEmitter {
 			break;
 		}
 		case 'threads':
-			body = { threads: [] };
+			body = { threads: [
+				{
+					"id": 1,
+					"name": "Main"
+				}] };
 			break;
 
-		case 'stackTrace':
-			body = {
-				stackFrames: [],
-				totalFrames: 0
-			};
+		case 'stackTrace': {
+			const eiffelDebuggerProtocol = this.eiffelDebuggerProtocol;
+			if (!eiffelDebuggerProtocol) {
+				throw new Error('Eiffel debugger is not available.');
+			}
+			const reply = await eiffelDebuggerProtocol.stackTrace(args.threadId);
+			body = reply.body;
 			break;
-
+		}
 		case 'scopes':
 			body = { scopes: [] };
 			break;
@@ -189,10 +175,15 @@ export class DebugAdapterProtocol extends EventEmitter {
 			};
 			break;
 
-		case 'continue':
+		case 'continue': {
+			const eiffelDebuggerProtocol = this.eiffelDebuggerProtocol;
+			if (!eiffelDebuggerProtocol) {
+				throw new Error('Eiffel debugger is not available.');
+			}
+			await eiffelDebuggerProtocol.continue();
 			body = { allThreadsContinued: true };
 			break;
-
+		}
 		case 'next':
 		case 'stepIn':
 		case 'stepOut':
@@ -323,6 +314,29 @@ class EiffelDebuggerProtocol extends EventEmitter {
 		}
 	}
 
+	public async setBreakpoints(sourcePath: any, breakpoints: any): Promise<EiffelDebuggerResponse> {
+		const response = await this.request('setBreakpoints', { sourcePath, breakpoints});
+		if (!response.success) {
+			throw new Error(response.message ?? 'Eiffel debugger configuration failed.');
+		}
+		return response;
+	}
+
+	public async stackTrace(threadId: any): Promise<EiffelDebuggerResponse> {
+		const response = await this.request('stackTrace', { threadId });
+		if (!response.success) {
+			throw new Error(response.message ?? 'Eiffel debugger configuration failed.');
+		}
+		return response;
+	}
+
+	public async continue(): Promise<void> {
+		const response = await this.request('continue');
+		if (!response.success) {
+			throw new Error(response.message ?? 'Eiffel debugger configuration failed.');
+		}
+	}
+
 	public async disconnect(): Promise<void> {
 		if (this.closed) {
 			return;
@@ -387,6 +401,33 @@ class EiffelDebuggerProtocol extends EventEmitter {
 				length = encodeUint16(bytes.length);
 				this.eiffelDebuggerInput.write(length);
 				this.eiffelDebuggerInput.write(bytes);
+				break;
+			case 'setBreakpoints':
+				bytes = Buffer.from(String(message.arguments?.sourcePath), 'utf8');
+				length = encodeUint16(bytes.length);
+				this.eiffelDebuggerInput.write(length);
+				this.eiffelDebuggerInput.write(bytes);
+				const breakpoints = Array.isArray(message.arguments?.breakpoints)
+					? message.arguments?.breakpoints as Array<{ line?: number }>
+					: [];
+				if (!breakpoints) {
+					bytes = Buffer.from(String(0), 'utf8');
+					length = encodeUint16(bytes.length);
+					this.eiffelDebuggerInput.write(length);
+					this.eiffelDebuggerInput.write(bytes);
+				} else {
+					bytes = Buffer.from(String(breakpoints.length), 'utf8');
+					length = encodeUint16(bytes.length);
+					this.eiffelDebuggerInput.write(length);
+					this.eiffelDebuggerInput.write(bytes);
+					for (const breakpoint of breakpoints) {
+						bytes = Buffer.from(String(breakpoint.line), 'utf8');
+						length = encodeUint16(bytes.length);
+						this.eiffelDebuggerInput.write(length);
+						this.eiffelDebuggerInput.write(bytes);
+					}
+				}
+				break;
 			}
 		});
 	}

@@ -262,7 +262,6 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 								error instanceof Error ? error.message : String(error)
 							);
 						}
-						vscode.window.showInformationMessage('Configuration Done');
 						return;
 					}
 					case 'threads': {
@@ -329,12 +328,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						const reply = await eiffelDebuggerRequest(request.command, {
 							threadId: args.threadId
 						});
-
-						const body = request.command === 'continue'
-							? { allThreadsContinued: true }
-							: reply.body;
-
-						sendResponse(request, true, body);
+						sendResponse(request, true, reply.body);
 						return;
 					}
 
