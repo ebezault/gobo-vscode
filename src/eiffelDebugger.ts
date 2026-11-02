@@ -40,21 +40,23 @@ export class DebugAdapterProtocol extends EventEmitter {
 			throw new Error('Eiffel application has already been started.');
 		}
 
+		const GOBO_DEBUG_PIPE_IN = 4;
+		const GOBO_DEBUG_PIPE_OUT = 3;
 		this.child = spawn(program, args, {
 			cwd: options.cwd,
-			env: options.env,
+			env: { ...options.env, GOBO_DEBUG_PIPE_IN: GOBO_DEBUG_PIPE_IN.toString(), GOBO_DEBUG_PIPE_OUT: GOBO_DEBUG_PIPE_OUT.toString() },
 			stdio: ['pipe', 'pipe', 'pipe', 'pipe', 'pipe']
 		});
 
 		const child = this.child;
 
 		// FD 3: Eiffel application -> Debug adapter.
-		this.eiffelDebuggerOutput = child.stdio[3] as Readable;
+		this.eiffelDebuggerOutput = child.stdio[GOBO_DEBUG_PIPE_OUT] as Readable;
 		if (!this.eiffelDebuggerOutput) {
 			throw new Error('Could not open Eiffel debugger output pipe.');
 		}
 		// FD 4: Debug adapter -> Eiffel application.
-		this.eiffelDebuggerInput = child.stdio[4] as Writable;
+		this.eiffelDebuggerInput = child.stdio[GOBO_DEBUG_PIPE_IN] as Writable;
 		if (!this.eiffelDebuggerInput ) {
 			throw new Error('Could not open Eiffel debugger input pipe.');;
 		}
