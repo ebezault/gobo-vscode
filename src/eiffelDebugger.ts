@@ -145,14 +145,15 @@ export class DebugAdapterProtocol extends EventEmitter {
 			body = {};
 			break;
 		}
-		case 'threads':
-			body = { threads: [
-				{
-					"id": 1,
-					"name": "Main"
-				}] };
+		case 'threads': {
+			const eiffelDebuggerProtocol = this.eiffelDebuggerProtocol;
+			if (!eiffelDebuggerProtocol) {
+				throw new Error('Eiffel debugger is not available.');
+			}
+			const reply = await eiffelDebuggerProtocol.threads();
+			body = reply.body;
 			break;
-
+		}
 		case 'stackTrace': {
 			const eiffelDebuggerProtocol = this.eiffelDebuggerProtocol;
 			if (!eiffelDebuggerProtocol) {
@@ -186,10 +187,18 @@ export class DebugAdapterProtocol extends EventEmitter {
 			body = { allThreadsContinued: true };
 			break;
 		}
+		case 'pause': {
+			const eiffelDebuggerProtocol = this.eiffelDebuggerProtocol;
+			if (!eiffelDebuggerProtocol) {
+				throw new Error('Eiffel debugger is not available.');
+			}
+			await eiffelDebuggerProtocol.pause();
+			body = { };
+			break;
+		}
 		case 'next':
 		case 'stepIn':
 		case 'stepOut':
-		case 'pause':
 			body = {};
 			break;
 
@@ -324,6 +333,14 @@ class EiffelDebuggerProtocol extends EventEmitter {
 		return response;
 	}
 
+	public async threads(): Promise<EiffelDebuggerResponse> {
+		const response = await this.request('threads');
+		if (!response.success) {
+			throw new Error(response.message ?? 'Eiffel debugger configuration failed.');
+		}
+		return response;
+	}
+
 	public async stackTrace(threadId: any): Promise<EiffelDebuggerResponse> {
 		const response = await this.request('stackTrace', { threadId });
 		if (!response.success) {
@@ -334,6 +351,13 @@ class EiffelDebuggerProtocol extends EventEmitter {
 
 	public async continue(): Promise<void> {
 		const response = await this.request('continue');
+		if (!response.success) {
+			throw new Error(response.message ?? 'Eiffel debugger configuration failed.');
+		}
+	}
+
+	public async pause(): Promise<void> {
+		const response = await this.request('pause');
 		if (!response.success) {
 			throw new Error(response.message ?? 'Eiffel debugger configuration failed.');
 		}
@@ -429,6 +453,12 @@ class EiffelDebuggerProtocol extends EventEmitter {
 						this.eiffelDebuggerInput.write(bytes);
 					}
 				}
+				break;
+			case 'stackTrace':
+				bytes = Buffer.from(String(message.arguments?.threadId), 'utf8');
+				length = encodeUint16(bytes.length);
+				this.eiffelDebuggerInput.write(length);
+				this.eiffelDebuggerInput.write(bytes);
 				break;
 			}
 		});
