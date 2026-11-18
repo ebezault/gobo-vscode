@@ -2,9 +2,12 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
+import { spawn } from 'child_process';
 import { compileEiffelSystem, getExecutableName, getEnvironmentVariables } from './eiffelCompiler';
 import { expandEnvVars } from './eiffelUtilities';
-import { DebugAdapterProtocol, DebugAdapterResponse } from './eiffelDebugger';
+import { EiffelDebugger, EiffelApplicationOptions } from './eiffelDebugger';
+import type { ChildProcessWithoutNullStreams } from 'child_process';
+import { Readable, Writable } from 'stream';
 
 export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 	// Register debug configuration provider
@@ -47,16 +50,20 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 	// Register debug adapter factory
 	const factory: vscode.DebugAdapterDescriptorFactory = {
 		createDebugAdapterDescriptor(session: vscode.DebugSession) {
-			const emitter = new vscode.EventEmitter<vscode.DebugProtocolMessage>();
-			const eiffelDebugger = new DebugAdapterProtocol();
-
+;			const emitter = new vscode.EventEmitter<vscode.DebugProtocolMessage>();
+			let child: ChildProcessWithoutNullStreams | undefined = undefined;
+			let eiffelDebugger: EiffelDebugger | undefined = undefined;
+			let exited = false;
 			let terminated = false;
 			let launched = false;
-			let configurationDone = false;
-			let nextVariableReference = 1;
+			let linesStartAt1 = true;
+			let columnsStartAt1 = true;
+			let nextFrameId = 1;
+			let nextVariablesReference = 1;
 
 			// These maps are used by the DAP scopes/variables requests.
-			const variableHandles = new Map<number, unknown>();
+			const variablesReferences = new Map<number, { kind: string, id: string, typeId?: number }>();
+			const frameIds = new Map<number, { threadId: number, frameId: string }>();
 
 			function sendEvent(event: string, body: Record<string, unknown> = {}) {
 				emitter.fire({
@@ -101,50 +108,50 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 				sendEvent('output', { category, output });
 			}
 
-			async function eiffelDebuggerRequest(
-				command: string,
-				args: Record<string, unknown> = {}
-			): Promise<DebugAdapterResponse> {
-				const reply = await eiffelDebugger.request(command, args);
-				if (!reply.success) {
-					throw new Error(reply.message || `Eiffel debugger command failed: ${command}`);
-				}
-				return reply;
-			}
-
 			async function handleRequest(request: any): Promise<void> {
 				const args = request.arguments ?? {};
 
 				try {
 					switch (request.command) {
 					case 'initialize': {
+						linesStartAt1 = request.linesStartAt1 ?? true;
+						columnsStartAt1 = request.columnsStartAt1 ?? true;
 						sendResponse(request, true, {
 							supportsConfigurationDoneRequest: true,
-							supportsEvaluateForHovers: true,
+							supportsEvaluateForHovers: false,
 							supportsSetVariable: false,
+							supportsVariablePaging: true,
 							supportsTerminateRequest: true,
+							supportsFunctionBreakpoints: false,
 							supportsConditionalBreakpoints: false,
 							supportsHitConditionalBreakpoints: false,
-							supportsFunctionBreakpoints: false,
+							supportsDelayedStackTraceLoading: true,
 							supportsStepBack: false,
 							supportsRestartRequest: false,
-							exceptionBreakpointFilters: [
-								{
-									filter: 'raised',
-									label: 'Raised Exceptions',
-									default: false
-								},
-								{
-									filter: 'uncaught',
-									label: 'Uncaught Exceptions',
-									default: false
-								},
-								{
-									filter: 'userUncaught',
-									label: 'User Uncaught Exceptions',
-									default: false
-								}
-							]
+							supportsRestartFrame: false,
+							supportsGotoTargetsRequest: false,
+							supportsStepInTargetsRequest: false,
+							supportsCompletionsRequest: false,
+							supportsModulesRequest: false,
+							supportsCancelRequest: false,
+							supportsSingleThreadExecutionRequests: false
+							//exceptionBreakpointFilters: [
+								// {
+								// 	filter: 'raised',
+								// 	label: 'Raised Exceptions',
+								// 	default: false
+								// },
+								// {
+								// 	filter: 'uncaught',
+								// 	label: 'Uncaught Exceptions',
+								// 	default: false
+								// },
+								// {
+								// 	filter: 'userUncaught',
+								// 	label: 'User Uncaught Exceptions',
+								// 	default: false
+								// }
+							//]
 						});
 						return;
 					}
@@ -179,9 +186,9 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 								if (compileOnly || code !== 0) {
 									sendResponse(request, true);
 									sendOutput(
-										compileOnly
-											? 'Compilation completed; execution skipped.\n'
-											: `Compilation failed with exit code ${code}.\n`
+										code !== 0
+											? `Compilation failed with exit code ${code}.\n`
+											: 'Compilation completed; execution skipped.\n'
 									);
 									terminate();
 									return;
@@ -206,57 +213,63 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 									throw new Error(`File is not executable: ${exeFile}`);
 								}
 							}
-							await eiffelDebugger.start(exeFile, args, {
+							await start(exeFile, args, {
 								cwd: workingDir,
 								env: environmentVariables
 							});
 							sendResponse(request, true);
 							sendEvent('initialized');
 						} catch (error) {
-							eiffelDebugger.stop();
+							stop();
 							sendErrorResponse(request, error instanceof Error ? error.message : String(error));
 						}
 						return;
 					}
 
 					case 'setBreakpoints': {
+						if (!child || !isRunning()) {
+							throw new Error('Eiffel application is not running.');
+						}
+						if (!eiffelDebugger) {
+							throw new Error('Eiffel debugger is not available.');
+						}
 						const sourcePath = args.source?.path;
 						if (typeof sourcePath !== 'string') {
 							sendResponse(request, true, { breakpoints: [] });
 							return;
 						}
-
 						const requestedBreakpoints = Array.isArray(args.breakpoints)
-							? args.breakpoints.map((bp: any) => ({
-								line: bp.line,
-								column: bp.column
+							? (args.breakpoints as Array<{ line: number }>).map(bp => ({
+								line: (linesStartAt1 ? bp.line : bp.line + 1)
 							}))
 							: [];
-
-						const reply = await eiffelDebuggerRequest('setBreakpoints', {
-							sourcePath: sourcePath,
-							breakpoints: requestedBreakpoints
-						});
-
+						const reply = await eiffelDebugger.setBreakpoints(sourcePath, requestedBreakpoints);
+						const breakpoints = Array.isArray(reply.body?.breakpoints) ? reply.body?.breakpoints : [];
+						if (!linesStartAt1) {
+							for (const breakpoint of breakpoints) {
+								if (breakpoint.line && typeof breakpoint.line === 'number') {
+									breakpoint.line--;
+								}
+							}
+						}
 						sendResponse(request, true, {
-							breakpoints: reply.body?.breakpoints ?? []
+							breakpoints: breakpoints
 						});
 						return;
 					}
 
-					case 'setExceptionBreakpoints':
-						// Exception handling is not implemented in the Eiffel runtime yet.
-						// Acknowledge the request so VS Code can continue the debug session.
-						sendResponse(request, true);
-						return;
-
 					case 'configurationDone': {
 						try {
-							await eiffelDebuggerRequest('configurationDone');
-							configurationDone = true;
+							if (!child || !isRunning()) {
+								throw new Error('Eiffel application is not running.');
+							}
+							if (!eiffelDebugger) {
+								throw new Error('Eiffel debugger is not available.');
+							}
+							await eiffelDebugger.configurationDone();
 							sendResponse(request, true);
 						} catch (error) {
-							eiffelDebugger.stop();
+							stop();
 							sendErrorResponse(
 								request,
 								error instanceof Error ? error.message : String(error)
@@ -264,8 +277,15 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						}
 						return;
 					}
+
 					case 'threads': {
-						const reply = await eiffelDebuggerRequest('threads');
+						if (!child || !isRunning()) {
+							throw new Error('Eiffel application is not running.');
+						}
+						if (!eiffelDebugger) {
+							throw new Error('Eiffel debugger is not available.');
+						}
+						const reply = await eiffelDebugger.threads();
 						sendResponse(request, true, {
 							threads: reply.body?.threads ?? []
 						});
@@ -273,31 +293,56 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 					}
 
 					case 'stackTrace': {
-						const reply = await eiffelDebuggerRequest('stackTrace', {
-							threadId: args.threadId,
-							startFrame: args.startFrame ?? 0,
-							levels: args.levels ?? 0
-						});
-						sendResponse(request, true, reply.body ?? {
-							stackFrames: [],
-							totalFrames: 0
+						if (!child || !isRunning()) {
+							throw new Error('Eiffel application is not running.');
+						}
+						if (!eiffelDebugger) {
+							throw new Error('Eiffel debugger is not available.');
+						}
+						const threadId = args.threadId;
+						const startFrame = args.startFrame ?? 0;
+						const levels = args.levels ?? 0;
+						const reply = await eiffelDebugger.stackTrace(threadId, startFrame + 1, levels);
+						const stackFrames = Array.isArray(reply.body?.stackFrames) ? reply.body?.stackFrames : [];
+						const totalFrames = reply.body?.totalFrames ?? 0;
+						for (const stackFrame of stackFrames) {
+							if (typeof stackFrame.id === 'string') {
+								frameIds.set(
+									nextFrameId,
+									{ threadId: threadId, frameId: stackFrame.id }
+								);
+								stackFrame.id = nextFrameId;
+								nextFrameId++;
+							}
+						}
+						sendResponse(request, true, {
+							stackFrames: stackFrames,
+							totalFrames: totalFrames
 						});
 						return;
 					}
 
 					case 'scopes': {
-						const reply = await eiffelDebuggerRequest('scopes', {
-							frameId: args.frameId
-						});
-						const scopes = reply.body?.scopes ?? [];
-
-						// Preserve runtime-supplied variable references.
+						if (!child || !isRunning()) {
+							throw new Error('Eiffel application is not running.');
+						}
+						if (!eiffelDebugger) {
+							throw new Error('Eiffel debugger is not available.');
+						}
+						const frameId = frameIds.get(args.frameId);
+						if (!frameId) {
+							throw new Error(`Unknown frame id ${args.frameId}.`);
+						}
+						const reply = await eiffelDebugger.scopes(frameId.threadId, frameId.frameId);
+						const scopes = Array.isArray(reply.body?.scopes) ? reply.body?.scopes : [];
 						for (const scope of scopes) {
-							if (typeof scope.variablesReference === 'number') {
-								variableHandles.set(
-									scope.variablesReference,
-									{ kind: 'runtime', reference: scope.variablesReference }
+							if (typeof scope.variablesReference !== 'number') {
+								variablesReferences.set(
+									nextVariablesReference,
+									scope.variablesReference
 								);
+								scope.variablesReference = nextVariablesReference;
+								nextVariablesReference++;
 							}
 						}
 						sendResponse(request, true, { scopes });
@@ -305,89 +350,291 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 					}
 
 					case 'variables': {
-						const reply = await eiffelDebuggerRequest('variables', {
-							variablesReference: args.variablesReference,
-							filter: args.filter,
-							start: args.start,
-							count: args.count
-						});
-						sendResponse(request, true, {
-							variables: reply.body?.variables ?? []
-						});
+						if (!child || !isRunning()) {
+							throw new Error('Eiffel application is not running.');
+						}
+						if (!eiffelDebugger) {
+							throw new Error('Eiffel debugger is not available.');
+						}
+						const filter = args.filter ?? "all";
+						const start = args.start ?? 0;
+						const count = args.count ?? 0;
+						const variablesReference = variablesReferences.get(args.variablesReference);
+						if (!variablesReference) {
+							throw new Error(`Unknown variables reference ${args.variablesReference}.`);
+						}
+						let reply;
+						switch (variablesReference.kind) {
+							case 'arguments': {
+								reply = await eiffelDebugger.argumentVariables(variablesReference.id, filter, start, count);
+								break;
+							}
+							case 'locals': {
+								reply = await eiffelDebugger.localVariables(variablesReference.id, filter, start, count);
+								break;
+							}
+							case 'attributes': {
+								const typeId = variablesReference.typeId ?? 0;
+								reply = await eiffelDebugger.attributeVariables(variablesReference.id, typeId, filter, start, count);
+								break;
+							}
+							default: {
+								throw new Error(`Unknown variable kind ${variablesReference.kind}.`);
+							}
+						}
+						const variables = Array.isArray(reply.body?.variables) ? reply.body?.variables : [];
+						for (const variable of variables) {
+							if (typeof variable.variablesReference !== 'number') {
+								variablesReferences.set(
+									nextVariablesReference,
+									variable.variablesReference
+								);
+								variable.variablesReference = nextVariablesReference;
+								nextVariablesReference++;
+							}
+						}
+						sendResponse(request, true, { variables });
 						return;
 					}
 
-					case 'continue':
-					case 'next':
-					case 'stepIn':
-					case 'stepOut':
+					case 'continue': {
+						if (!child || !isRunning()) {
+							throw new Error('Eiffel application is not running.');
+						}
+						if (!eiffelDebugger) {
+							throw new Error('Eiffel debugger is not available.');
+						}
+						const threadId = args.threadId;
+						const reply = await eiffelDebugger.continue();
+						frameIds.clear();
+						sendResponse(request, true, reply.body);
+						return;
+					}
+
 					case 'pause': {
-	
-						// The Eiffel application should acknowledge the command promptly.
-						// The eventual stop/continue is reported as a runtime event.
-						const reply = await eiffelDebuggerRequest(request.command, {
-							threadId: args.threadId
-						});
+						if (!child || !isRunning()) {
+							throw new Error('Eiffel application is not running.');
+						}
+						if (!eiffelDebugger) {
+							throw new Error('Eiffel debugger is not available.');
+						}
+						const threadId = args.threadId;
+						const reply = await eiffelDebugger.pause();
+						frameIds.clear();
+						sendResponse(request, true, {});
+						return;
+					}
+
+					case 'next': {
+						if (!child || !isRunning()) {
+							throw new Error('Eiffel application is not running.');
+						}
+						if (!eiffelDebugger) {
+							throw new Error('Eiffel debugger is not available.');
+						}
+						const threadId = args.threadId;
+						const reply = await eiffelDebugger.next(threadId);
+						frameIds.clear();
+						sendResponse(request, true, reply.body);
+						return;
+					}
+
+					case 'stepIn': {
+						if (!child || !isRunning()) {
+							throw new Error('Eiffel application is not running.');
+						}
+						if (!eiffelDebugger) {
+							throw new Error('Eiffel debugger is not available.');
+						}
+						const threadId = args.threadId;
+						const reply = await eiffelDebugger.stepIn(threadId);
+						frameIds.clear();
+						sendResponse(request, true, reply.body);
+						return;
+					}
+
+					case 'stepOut': {
+						if (!child || !isRunning()) {
+							throw new Error('Eiffel application is not running.');
+						}
+						if (!eiffelDebugger) {
+							throw new Error('Eiffel debugger is not available.');
+						}
+						const threadId = args.threadId;
+						const reply = await eiffelDebugger.stepOut(threadId);
+						frameIds.clear();
 						sendResponse(request, true, reply.body);
 						return;
 					}
 
 					case 'evaluate': {
+						if (!child || !isRunning()) {
+							throw new Error('Eiffel application is not running.');
+						}
+						if (!eiffelDebugger) {
+							throw new Error('Eiffel debugger is not available.');
+						}
 						const expression = args.expression;
+						const frameId = args.frameId;
+						const context = args.context;
 						if (typeof expression !== 'string') {
 							sendResponse(request, false, undefined, 'Missing expression.');
 							return;
 						}
-
 						if (args.context === 'repl') {
 							// Keep the existing behavior: Debug Console REPL input
 							// is sent to the running program's standard input.
-							eiffelDebugger.writeInput(expression + '\n');
-							sendResponse(request, true, {
-								result: '',
-								variablesReference: 0
-							});
+							writeInput(expression + '\n');
 							return;
 						}
-
-						const reply = await eiffelDebuggerRequest('evaluate', {
-							expression,
-							frameId: args.frameId,
-							context: args.context
-						});
-						sendResponse(request, true, reply.body ?? {
-							result: '',
+						sendResponse(request, true, {
+							result: '<debug evaluation unavailable>',
 							variablesReference: 0
 						});
 						return;
 					}
+
 					case 'disconnect': {
 						try {
-							await eiffelDebuggerRequest('disconnect');
+							if (!child || !isRunning()) {
+								throw new Error('Eiffel application is not running.');
+							}
+							if (!eiffelDebugger) {
+								throw new Error('Eiffel debugger is not available.');
+							}
+							await eiffelDebugger.disconnect();
 						} catch {
 							// The runtime may already have exited or closed its pipes.
 						} finally {
-							eiffelDebugger.stop();
+							stop();
 							sendResponse(request, true);
 							terminate();
 						}
 						return;
 					}
+
 					case 'terminate': {
-						eiffelDebugger.stop();
+						stop();
 						sendResponse(request, true);
 						terminate();
 						return;
 					}
+
 					default:
 						sendErrorResponse(request, `Unsupported DAP request: ${request.command}`);
 						return;
 					}
+
 				} catch (error) {
-					sendErrorResponse(request,error instanceof Error ? error.message : String(error));
+					sendErrorResponse(request, error instanceof Error ? error.message : String(error));
 				}
 			}
 
+			function isRunning(): boolean {
+				return !!(child) &&
+					!exited &&
+					child.exitCode === null &&
+					child.signalCode === null;
+			}
+
+			async function start(
+				program: string,
+				args: string[],
+				options: EiffelApplicationOptions
+			): Promise<void> {
+				if (child) {
+					throw new Error('Eiffel application has already been started.');
+				}
+
+				const GOBO_DEBUG_PIPE_IN = 4;
+				const GOBO_DEBUG_PIPE_OUT = 3;
+				child = spawn(program, args, {
+					cwd: options.cwd,
+					env: { ...options.env, GOBO_DEBUG_PIPE_IN: GOBO_DEBUG_PIPE_IN.toString(), GOBO_DEBUG_PIPE_OUT: GOBO_DEBUG_PIPE_OUT.toString() },
+					stdio: ['pipe', 'pipe', 'pipe', 'pipe', 'pipe']
+				});
+	
+				// FD 3: Eiffel application -> Debug adapter.
+				const eiffelDebuggerOutput = child.stdio[GOBO_DEBUG_PIPE_OUT] as Readable;
+				if (!eiffelDebuggerOutput) {
+					throw new Error('Could not open Eiffel debugger output pipe.');
+				}
+				// FD 4: Debug adapter -> Eiffel application.
+				const eiffelDebuggerInput = child.stdio[GOBO_DEBUG_PIPE_IN] as Writable;
+				if (!eiffelDebuggerInput ) {
+					throw new Error('Could not open Eiffel debugger input pipe.');;
+				}
+				eiffelDebugger = new EiffelDebugger(
+					eiffelDebuggerOutput,
+					eiffelDebuggerInput
+				);
+
+				eiffelDebugger.on('output', (output: {
+					category: string;
+					output: string;
+				}) => {
+					sendOutput(output.output, output.category);
+				});
+
+				eiffelDebugger.on('eiffelDebuggerEvent', (message: any) => {
+					// Eiffel debugger event bodies should follow the DAP event schema.
+					// For example: { event: "stopped", body: { reason: "breakpoint", threadId: 1 } }
+					if (typeof message.event === 'string') {
+						sendEvent(message.event, message.body ?? {});
+					}
+				});
+
+				eiffelDebugger.on('eiffelDebuggerError', (error: Error) => {
+					sendOutput(`Failed to run Eiffel application: ${error.message}\n`);
+					terminate();
+				});
+
+				eiffelDebugger.on('eiffelDebuggerProtocolError', (message: string) => {
+					sendOutput(`Eiffel debugger protocol error: ${message}\n`);
+				});
+
+				eiffelDebugger.on('eiffelDebuggerProtocolWarning', (message: string) => {
+					sendOutput(`Eiffel debugger protocol warning: ${message}\n`);
+				});
+
+				eiffelDebugger.on('exit', ({ code, signal }: {
+					code: number | null;
+					signal: NodeJS.Signals | null;
+				}) => {
+					sendOutput(`\nProcess exited with code ${code}` + (signal ? ` (signal ${signal})` : '') + '\n');
+					terminate();
+				});
+
+				child.stdout.on('data', data => {
+					sendOutput(data.toString(), 'stdout');
+				});
+
+				child.stderr.on('data', data => {
+					sendOutput(data.toString(), 'stderr');
+				});
+
+				child.on('error', error => {
+					sendOutput(`Failed to run Eiffel application: ${error.message}\n`);
+					terminate();
+					finish();
+				});
+
+				child.on('exit', (code, signal) => {
+					eiffelDebugger?.abort(
+						new Error('Eiffel application exited.')
+					);
+					terminate();
+					exit(code, signal);
+				});
+				await eiffelDebugger.initialize();
+			}
+
+			function stop() {
+				eiffelDebugger?.abort(new Error('Eiffel debugging session stopped.'));
+				if (isRunning()) {
+					child?.kill();
+				}
+			}
 			function terminate() {
 				if (terminated) {
 					return;
@@ -396,37 +643,29 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 				sendEvent('terminated');
 			}
 
-			eiffelDebugger.on('output', (output: {
-				category: string;
-				output: string;
-			}) => {
-				sendOutput(output.output, output.category);
-			});
-
-			eiffelDebugger.on('eiffelDebuggerEvent', (message: any) => {
-				// Eiffel debugger event bodies should follow the DAP event schema.
-				// For example: { event: "stopped", body: { reason: "breakpoint", threadId: 1 } }
-				if (typeof message.event === 'string') {
-					sendEvent(message.event, message.body ?? {});
-				}
-			});
-
-			eiffelDebugger.on('eiffelDebuggerError', (error: Error) => {
-				sendOutput(`Failed to run Eiffel application: ${error.message}\n`);
-				terminate();
-			});
-
-			eiffelDebugger.on('eiffelDebuggerProtocolError', (message: string) => {
-				sendOutput(`Eiffel debugger protocol error: ${message}\n`);
-			});
-
-			eiffelDebugger.on('exit', ({ code, signal }: {
-				code: number | null;
-				signal: NodeJS.Signals | null;
-			}) => {
+			function exit(
+				code: number | null,
+				signal: NodeJS.Signals | null
+			): void {
+				finish();
 				sendOutput(`\nProcess exited with code ${code}` + (signal ? ` (signal ${signal})` : '') + '\n');
-				terminate();
-			});
+				sendEvent('exited', { exitCode: code });
+			}
+
+			function finish(): void {
+				if (exited) {
+					return;
+				}
+				exited = true;
+			}
+
+			function writeInput(text: string): boolean {
+				const stdin = child?.stdin;
+				if (!isRunning() || !stdin || !stdin.writable) {
+					return false;
+				}
+				return stdin.write(text);
+			}
 
 			const adapter: vscode.DebugAdapter = {
 				onDidSendMessage: emitter.event,
@@ -438,7 +677,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 				},
 
 				dispose() {
-					eiffelDebugger.stop();
+					stop();
 					emitter.dispose();
 				}
 			};
