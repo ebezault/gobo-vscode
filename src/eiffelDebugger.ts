@@ -122,16 +122,16 @@ export class EiffelDebugger extends EventEmitter {
 		return response;
 	}
 
-	public async argumentVariables(frameId: string, filter: string, start: number, count: number): Promise<EiffelDebuggerResponse> {
-		const response = await this.request('argumentVariables', { frameId, filter, start, count });
+	public async argumentVariables(threadId: number, frameId: string, filter: string, start: number, count: number): Promise<EiffelDebuggerResponse> {
+		const response = await this.request('argumentVariables', { threadId, frameId, filter, start, count });
 		if (!response.success) {
 			throw new Error(response.message ?? 'Eiffel debugger configuration failed.');
 		}
 		return response;
 	}
 
-	public async localVariables(frameId: string, filter: string, start: number, count: number): Promise<EiffelDebuggerResponse> {
-		const response = await this.request('localVariables', { frameId, filter, start, count });
+	public async localVariables(threadId: number, frameId: string, filter: string, start: number, count: number): Promise<EiffelDebuggerResponse> {
+		const response = await this.request('localVariables', { threadId, frameId, filter, start, count });
 		if (!response.success) {
 			throw new Error(response.message ?? 'Eiffel debugger configuration failed.');
 		}
@@ -311,6 +311,10 @@ export class EiffelDebugger extends EventEmitter {
 				break;
 			case 'argumentVariables':
 			case 'localVariables':
+				bytes = Buffer.from(String(message.arguments?.threadId), 'utf8');
+				length = encodeUint16(bytes.length);
+				this.eiffelDebuggerInput.write(length);
+				this.eiffelDebuggerInput.write(bytes);
 				bytes = Buffer.from(String(message.arguments?.frameId), 'utf8');
 				length = encodeUint16(bytes.length);
 				this.eiffelDebuggerInput.write(length);

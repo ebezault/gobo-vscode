@@ -62,7 +62,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 			let nextVariablesReference = 1;
 
 			// These maps are used by the DAP scopes/variables requests.
-			const variablesReferences = new Map<number, { kind: string, id: string, typeId?: number }>();
+			const variablesReferences = new Map<number, { kind: string, id: string, threadId?: number, typeId?: number }>();
 			const frameIds = new Map<number, { threadId: number, frameId: string }>();
 
 			function sendEvent(event: string, body: Record<string, unknown> = {}) {
@@ -306,10 +306,10 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						const stackFrames = Array.isArray(reply.body?.stackFrames) ? reply.body?.stackFrames : [];
 						const totalFrames = reply.body?.totalFrames ?? 0;
 						for (const stackFrame of stackFrames) {
-							if (typeof stackFrame.id === 'string') {
+							if (typeof stackFrame.id !== 'number') {
 								frameIds.set(
 									nextFrameId,
-									{ threadId: threadId, frameId: stackFrame.id }
+									stackFrame.id
 								);
 								stackFrame.id = nextFrameId;
 								nextFrameId++;
@@ -366,11 +366,13 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						let reply;
 						switch (variablesReference.kind) {
 							case 'arguments': {
-								reply = await eiffelDebugger.argumentVariables(variablesReference.id, filter, start, count);
+								const threadId = variablesReference.threadId ?? 0;
+								reply = await eiffelDebugger.argumentVariables(threadId, variablesReference.id, filter, start, count);
 								break;
 							}
 							case 'locals': {
-								reply = await eiffelDebugger.localVariables(variablesReference.id, filter, start, count);
+								const threadId = variablesReference.threadId ?? 0;
+								reply = await eiffelDebugger.localVariables(threadId, variablesReference.id, filter, start, count);
 								break;
 							}
 							case 'attributes': {
@@ -407,6 +409,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						const threadId = args.threadId;
 						const reply = await eiffelDebugger.continue();
 						frameIds.clear();
+						variablesReferences.clear();
 						sendResponse(request, true, reply.body);
 						return;
 					}
@@ -421,6 +424,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						const threadId = args.threadId;
 						const reply = await eiffelDebugger.pause();
 						frameIds.clear();
+						variablesReferences.clear();
 						sendResponse(request, true, {});
 						return;
 					}
@@ -435,6 +439,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						const threadId = args.threadId;
 						const reply = await eiffelDebugger.next(threadId);
 						frameIds.clear();
+						variablesReferences.clear();
 						sendResponse(request, true, reply.body);
 						return;
 					}
@@ -449,6 +454,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						const threadId = args.threadId;
 						const reply = await eiffelDebugger.stepIn(threadId);
 						frameIds.clear();
+						variablesReferences.clear();
 						sendResponse(request, true, reply.body);
 						return;
 					}
@@ -463,6 +469,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						const threadId = args.threadId;
 						const reply = await eiffelDebugger.stepOut(threadId);
 						frameIds.clear();
+						variablesReferences.clear();
 						sendResponse(request, true, reply.body);
 						return;
 					}
