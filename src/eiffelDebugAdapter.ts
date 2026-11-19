@@ -61,6 +61,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 			let columnsStartAt1 = true;
 			let nextFrameId = 1;
 			let nextVariablesReference = 1;
+			let stoppedGeneration = 0;
 
 			// These maps are used by the DAP scopes/variables requests.
 			const variablesReferences = new Map<number, { kind: string, id: string, threadId?: number, typeId?: number }>();
@@ -305,7 +306,12 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						const threadId = args.threadId;
 						const startFrame = args.startFrame ?? 0;
 						const levels = args.levels ?? 0;
+						const generation = stoppedGeneration;
 						const reply = await eiffelDebugger.stackTrace(threadId, startFrame + 1, levels);
+						if (generation !== stoppedGeneration) {
+							sendErrorResponse(request, "Debug state changed while retrieving stack trace.");
+							return;
+						}
 						const stackFrames = Array.isArray(reply.body?.stackFrames) ? reply.body?.stackFrames : [];
 						const totalFrames = reply.body?.totalFrames ?? 0;
 						for (const stackFrame of stackFrames) {
@@ -336,7 +342,12 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						if (!frameId) {
 							throw new Error(`Unknown frame id ${args.frameId}.`);
 						}
+						const generation = stoppedGeneration;
 						const reply = await eiffelDebugger.scopes(frameId.threadId, frameId.frameId);
+						if (generation !== stoppedGeneration) {
+							sendErrorResponse(request, "Debug state changed while retrieving scopes.");
+							return;
+						}
 						const scopes = Array.isArray(reply.body?.scopes) ? reply.body?.scopes : [];
 						for (const scope of scopes) {
 							if (typeof scope.variablesReference !== 'number') {
@@ -367,6 +378,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							throw new Error(`Unknown variables reference ${args.variablesReference}.`);
 						}
 						let reply;
+						const generation = stoppedGeneration;
 						switch (variablesReference.kind) {
 							case 'arguments': {
 								const threadId = variablesReference.threadId ?? 0;
@@ -386,6 +398,10 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							default: {
 								throw new Error(`Unknown variable kind ${variablesReference.kind}.`);
 							}
+						}
+						if (generation !== stoppedGeneration) {
+							sendErrorResponse(request, "Debug state changed while retrieving variables.");
+							return;
 						}
 						const variables = Array.isArray(reply.body?.variables) ? reply.body?.variables : [];
 						for (const variable of variables) {
@@ -621,6 +637,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 					// For example: { event: "stopped", body: { reason: "breakpoint", threadId: 1 } }
 					if (typeof message.event === 'string') {
 						if (message.event === "stopped") {
+							stoppedGeneration++;
 							frameIds.clear();
 							variablesReferences.clear();
 							nextFrameId = 1;
@@ -662,14 +679,13 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 
 				child.on('error', error => {
 					sendOutput(`Failed to run Eiffel application: ${error.message}\n`);
+					eiffelDebugger?.abort(new Error(`Failed to run Eiffel application: ${error.message}`));
 					terminate();
 					finish();
 				});
 
 				child.on('exit', (code, signal) => {
-					eiffelDebugger?.abort(
-						new Error('Eiffel application exited.')
-					);
+					eiffelDebugger?.abort(new Error('Eiffel application exited.'));
 					terminate();
 					exit(code, signal);
 				});
