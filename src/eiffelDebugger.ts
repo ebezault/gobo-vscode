@@ -259,22 +259,15 @@ export class EiffelDebugger extends EventEmitter {
 				const breakpoints = Array.isArray(message.arguments?.breakpoints)
 					? message.arguments?.breakpoints as Array<{ line?: number }>
 					: [];
-				if (!breakpoints) {
-					bytes = Buffer.from(String(0), 'utf8');
+				bytes = Buffer.from(String(breakpoints.length), 'utf8');
+				length = encodeUint16(bytes.length);
+				this.eiffelDebuggerInput.write(length);
+				this.eiffelDebuggerInput.write(bytes);
+				for (const breakpoint of breakpoints) {
+					bytes = Buffer.from(String(breakpoint.line), 'utf8');
 					length = encodeUint16(bytes.length);
 					this.eiffelDebuggerInput.write(length);
 					this.eiffelDebuggerInput.write(bytes);
-				} else {
-					bytes = Buffer.from(String(breakpoints.length), 'utf8');
-					length = encodeUint16(bytes.length);
-					this.eiffelDebuggerInput.write(length);
-					this.eiffelDebuggerInput.write(bytes);
-					for (const breakpoint of breakpoints) {
-						bytes = Buffer.from(String(breakpoint.line), 'utf8');
-						length = encodeUint16(bytes.length);
-						this.eiffelDebuggerInput.write(length);
-						this.eiffelDebuggerInput.write(bytes);
-					}
 				}
 				break;
 			case 'stackTrace':
