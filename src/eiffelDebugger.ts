@@ -431,7 +431,7 @@ export class EiffelDebugger extends EventEmitter {
 		});
 	}
 
-	private close(error: Error): void {
+	public close(error: Error): void {
 		if (this.closed) {
 			return;
 		}

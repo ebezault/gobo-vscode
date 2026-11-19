@@ -650,7 +650,12 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 					}
 					if (message.event === 'protocolError') {
 						const errorMessage = message.message ?? 'Unknown Eiffel debugger protocol error.';
-						sendOutput(`Eiffel debugger protocol error: ${errorMessage}\n`);
+						const error = new Error(`Eiffel debugger protocol error: ${errorMessage}`);
+						if (eiffelDebugger) {
+							eiffelDebugger.close(error);
+							eiffelDebugger = undefined;
+						}
+						terminate();
 						return;
 					}
 					if (message.event === "stopped") {
