@@ -116,8 +116,8 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 				try {
 					switch (request.command) {
 					case 'initialize': {
-						linesStartAt1 = request.linesStartAt1 ?? true;
-						columnsStartAt1 = request.columnsStartAt1 ?? true;
+						linesStartAt1 = args.linesStartAt1 ?? true;
+						columnsStartAt1 = args.columnsStartAt1 ?? true;
 						sendResponse(request, true, {
 							supportsConfigurationDoneRequest: true,
 							supportsEvaluateForHovers: false,
@@ -649,7 +649,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						return;
 					}
 					if (message.event === 'protocolError') {
-						const errorMessage = message.body?.message ?? 'Unknown Eiffel debugger protocol error.';
+						const errorMessage = message.message ?? 'Unknown Eiffel debugger protocol error.';
 						sendOutput(`Eiffel debugger protocol error: ${errorMessage}\n`);
 						return;
 					}
