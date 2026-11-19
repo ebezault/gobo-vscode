@@ -56,6 +56,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 			let exited = false;
 			let terminated = false;
 			let launched = false;
+			let stopped = true;
 			let linesStartAt1 = true;
 			let columnsStartAt1 = true;
 			let nextFrameId = 1;
@@ -266,6 +267,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							if (!eiffelDebugger) {
 								throw new Error('Eiffel debugger is not available.');
 							}
+							stopped = false;
 							await eiffelDebugger.configurationDone();
 							sendResponse(request, true);
 						} catch (error) {
@@ -407,6 +409,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							throw new Error('Eiffel debugger is not available.');
 						}
 						const threadId = args.threadId;
+						stopped = false;
 						const reply = await eiffelDebugger.continue();
 						frameIds.clear();
 						variablesReferences.clear();
@@ -437,6 +440,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							throw new Error('Eiffel debugger is not available.');
 						}
 						const threadId = args.threadId;
+						stopped = false;
 						const reply = await eiffelDebugger.next(threadId);
 						frameIds.clear();
 						variablesReferences.clear();
@@ -452,6 +456,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							throw new Error('Eiffel debugger is not available.');
 						}
 						const threadId = args.threadId;
+						stopped = false;
 						const reply = await eiffelDebugger.stepIn(threadId);
 						frameIds.clear();
 						variablesReferences.clear();
@@ -467,6 +472,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							throw new Error('Eiffel debugger is not available.');
 						}
 						const threadId = args.threadId;
+						stopped = false;
 						const reply = await eiffelDebugger.stepOut(threadId);
 						frameIds.clear();
 						variablesReferences.clear();
@@ -485,19 +491,23 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						const frameId = args.frameId;
 						const context = args.context;
 						if (typeof expression !== 'string') {
-							sendResponse(request, false, undefined, 'Missing expression.');
+							sendErrorResponse(request, 'Missing expression.');
 							return;
 						}
-						if (args.context === 'repl') {
-							// Keep the existing behavior: Debug Console REPL input
-							// is sent to the running program's standard input.
-							writeInput(expression + '\n');
+						if (!stopped) {
+							if (args.context === 'repl') {
+								// Debug Console REPL input is sent to the running program's standard input.
+								writeInput(expression + '\n');
+								sendResponse(request, true, {
+									result: '',
+									variablesReference: 0
+								});
+								return;
+							}
+							sendErrorResponse(request, "The application is not stopped.");
 							return;
 						}
-						sendResponse(request, true, {
-							result: '<debug evaluation unavailable>',
-							variablesReference: 0
-						});
+						sendErrorResponse(request, "Debug evaluation unavailable.");
 						return;
 					}
 
@@ -587,6 +597,9 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 					// Eiffel debugger event bodies should follow the DAP event schema.
 					// For example: { event: "stopped", body: { reason: "breakpoint", threadId: 1 } }
 					if (typeof message.event === 'string') {
+						if (message.event === "stopped") {
+							stopped = true;
+						}
 						sendEvent(message.event, message.body ?? {});
 					}
 				});
