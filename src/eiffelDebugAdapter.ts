@@ -413,10 +413,6 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						try {
 							stopped = false;
 							const reply = await eiffelDebugger.continue();
-							frameIds.clear();
-							variablesReferences.clear();
-							nextFrameId = 1;
-							nextVariablesReference = 1;
 							sendResponse(request, true, reply.body);
 						} catch (error) {
 							stopped = true;
@@ -437,10 +433,6 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						}
 						const threadId = args.threadId;
 						const reply = await eiffelDebugger.pause();
-						frameIds.clear();
-						variablesReferences.clear();
-						nextFrameId = 1;
-						nextVariablesReference = 1;
 						sendResponse(request, true, {});
 						return;
 					}
@@ -456,10 +448,6 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						try {
 							stopped = false;
 							const reply = await eiffelDebugger.next(threadId);
-							frameIds.clear();
-							variablesReferences.clear();
-							nextFrameId = 1;
-							nextVariablesReference = 1;
 							sendResponse(request, true, reply.body);
 						} catch (error) {
 							stopped = true;
@@ -482,10 +470,6 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						try {
 							stopped = false;
 							const reply = await eiffelDebugger.stepIn(threadId);
-							frameIds.clear();
-							variablesReferences.clear();
-							nextFrameId = 1;
-							nextVariablesReference = 1;
 							sendResponse(request, true, reply.body);
 						} catch (error) {
 							stopped = true;
@@ -508,10 +492,6 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						try {
 							stopped = false;
 							const reply = await eiffelDebugger.stepOut(threadId);
-							frameIds.clear();
-							variablesReferences.clear();
-							nextFrameId = 1;
-							nextVariablesReference = 1;
 							sendResponse(request, true, reply.body);
 						} catch (error) {
 							stopped = true;
@@ -641,6 +621,10 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 					// For example: { event: "stopped", body: { reason: "breakpoint", threadId: 1 } }
 					if (typeof message.event === 'string') {
 						if (message.event === "stopped") {
+							frameIds.clear();
+							variablesReferences.clear();
+							nextFrameId = 1;
+							nextVariablesReference = 1;
 							stopped = true;
 						}
 						sendEvent(message.event, message.body ?? {});
