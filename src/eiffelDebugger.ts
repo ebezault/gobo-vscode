@@ -436,6 +436,11 @@ export class EiffelDebugger extends EventEmitter {
 			return;
 		}
 		this.closed = true;
+		// Notify the Eiffel runtime that the debugger connection is gone.
+		// The runtime will detect EOF and perform its debugger cleanup.
+		if (this.eiffelDebuggerInput.writable) {
+			this.eiffelDebuggerInput.end();
+		}
 		for (const pending of this.pending.values()) {
 			clearTimeout(pending.timer);
 			pending.reject(error);

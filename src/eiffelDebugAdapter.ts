@@ -561,10 +561,12 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							if (!child || !isRunning()) {
 								throw new Error('Eiffel application is not running.');
 							}
-							if (!eiffelDebugger) {
+							const oldDebugger = eiffelDebugger;
+							if (!oldDebugger) {
 								throw new Error('Eiffel debugger is not available.');
 							}
-							await eiffelDebugger.disconnect();
+							eiffelDebugger = undefined;
+							await oldDebugger.disconnect();
 						} catch {
 							// The runtime may already have exited or closed its pipes.
 						} finally {
@@ -578,7 +580,8 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 					case 'terminate': {
 						stop();
 						sendResponse(request, true);
-						terminate();
+						// Note that `terminate()` will be invoked by 
+						// `eiffelDebugger.on('exit', ...)`.
 						return;
 					}
 
@@ -626,19 +629,20 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 				if (!eiffelDebuggerInput ) {
 					throw new Error('Could not open Eiffel debugger input pipe.');;
 				}
-				eiffelDebugger = new EiffelDebugger(
+				const newDebugger = new EiffelDebugger(
 					eiffelDebuggerOutput,
 					eiffelDebuggerInput
 				);
+				eiffelDebugger = newDebugger;
 
-				eiffelDebugger.on('output', (output: {
+				newDebugger.on('output', (output: {
 					category: string;
 					output: string;
 				}) => {
 					sendOutput(output.output, output.category);
 				});
 
-				eiffelDebugger.on('eiffelDebuggerEvent', (message: any) => {
+				newDebugger.on('eiffelDebuggerEvent', (message: any) => {
 					// Eiffel debugger event bodies should follow the DAP event schema.
 					// For example: { event: "stopped", body: { reason: "breakpoint", threadId: 1 } }
 					if (typeof message.event !== 'string') {
@@ -651,11 +655,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 					if (message.event === 'protocolError') {
 						const errorMessage = message.message ?? 'Unknown Eiffel debugger protocol error.';
 						const error = new Error(`Eiffel debugger protocol error: ${errorMessage}`);
-						if (eiffelDebugger) {
-							eiffelDebugger.close(error);
-							eiffelDebugger = undefined;
-						}
-						sendOutput(`${error.message}\n`);
+						newDebugger.close(error);
 						return;
 					}
 					if (message.event === "stopped") {
@@ -670,16 +670,30 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 					sendEvent(message.event, message.body ?? {});
 				});
 
-				eiffelDebugger.on('eiffelDebuggerError', (error: Error) => {
+				newDebugger.on('eiffelDebuggerError', (error: Error) => {
 					sendOutput(`Failed to run Eiffel application: ${error.message}\n`);
 					terminate();
 				});
 
-				eiffelDebugger.on('eiffelDebuggerProtocolWarning', (message: string) => {
+				newDebugger.on('eiffelDebuggerProtocolWarning', (message: string) => {
 					sendOutput(`Eiffel debugger protocol warning: ${message}\n`);
 				});
 
-				eiffelDebugger.on('exit', ({ code, signal }: {
+				newDebugger.on('closed', (error: Error) => {
+					if (eiffelDebugger !== newDebugger) {
+						return;
+					}
+					eiffelDebugger = undefined;
+					// EOF on the runtime output pipe is expected when the application exits.
+					if (error.message === 'Eiffel debugger protocol pipe closed.') {
+						return;
+					}
+					if (isRunning() && !terminated) {
+						sendOutput(`Eiffel debugger connection closed: ${error.message}\n`);
+					}
+				});
+
+				newDebugger.on('exit', ({ code, signal }: {
 					code: number | null;
 					signal: NodeJS.Signals | null;
 				}) => {
@@ -697,25 +711,32 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 
 				child.on('error', error => {
 					sendOutput(`Failed to run Eiffel application: ${error.message}\n`);
-					eiffelDebugger?.abort(new Error(`Failed to run Eiffel application: ${error.message}`));
-					terminate();
+					closeDebugger(new Error(`Failed to run Eiffel application: ${error.message}`));
 					finish();
+					terminate();
 				});
 
 				child.on('exit', (code, signal) => {
-					eiffelDebugger?.abort(new Error('Eiffel application exited.'));
-					terminate();
+					closeDebugger(new Error('Eiffel application exited.'));
 					exit(code, signal);
+					terminate();
 				});
 				await eiffelDebugger.initialize();
 			}
 
+			function closeDebugger(error: Error): void {
+				const oldDebugger = eiffelDebugger;
+				eiffelDebugger = undefined;
+				oldDebugger?.abort(error);
+			}
+
 			function stop() {
-				eiffelDebugger?.abort(new Error('Eiffel debugging session stopped.'));
+				closeDebugger(new Error('Eiffel debugging session stopped.'));
 				if (isRunning()) {
 					child?.kill();
 				}
 			}
+
 			function terminate() {
 				if (terminated) {
 					return;
