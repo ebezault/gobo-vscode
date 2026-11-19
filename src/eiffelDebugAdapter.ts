@@ -50,7 +50,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 	// Register debug adapter factory
 	const factory: vscode.DebugAdapterDescriptorFactory = {
 		createDebugAdapterDescriptor(session: vscode.DebugSession) {
-;			const emitter = new vscode.EventEmitter<vscode.DebugProtocolMessage>();
+			const emitter = new vscode.EventEmitter<vscode.DebugProtocolMessage>();
 			let child: ChildProcessWithoutNullStreams | undefined = undefined;
 			let eiffelDebugger: EiffelDebugger | undefined = undefined;
 			let exited = false;
@@ -315,6 +315,12 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						const stackFrames = Array.isArray(reply.body?.stackFrames) ? reply.body?.stackFrames : [];
 						const totalFrames = reply.body?.totalFrames ?? 0;
 						for (const stackFrame of stackFrames) {
+							if (!linesStartAt1) {
+								stackFrame.line--;
+							}
+							if (!columnsStartAt1) {
+								stackFrame.column--;
+							}
 							if (typeof stackFrame.id !== 'number') {
 								frameIds.set(
 									nextFrameId,
@@ -635,26 +641,33 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 				eiffelDebugger.on('eiffelDebuggerEvent', (message: any) => {
 					// Eiffel debugger event bodies should follow the DAP event schema.
 					// For example: { event: "stopped", body: { reason: "breakpoint", threadId: 1 } }
-					if (typeof message.event === 'string') {
-						if (message.event === "stopped") {
-							stoppedGeneration++;
-							frameIds.clear();
-							variablesReferences.clear();
-							nextFrameId = 1;
-							nextVariablesReference = 1;
-							stopped = true;
-						}
-						sendEvent(message.event, message.body ?? {});
+					if (typeof message.event !== 'string') {
+						return;
 					}
+					if (message.event === "started") {
+						// Internal Eiffel debugger protocol event; do not forward to VS Code.
+						return;
+					}
+					if (message.event === 'protocolError') {
+						const errorMessage = message.body?.message ?? 'Unknown Eiffel debugger protocol error.';
+						sendOutput(`Eiffel debugger protocol error: ${errorMessage}\n`);
+						return;
+					}
+					if (message.event === "stopped") {
+						stoppedGeneration++;
+						frameIds.clear();
+						variablesReferences.clear();
+						nextFrameId = 1;
+						nextVariablesReference = 1;
+						stopped = true;
+					}
+					// Forward actual DAP events.
+					sendEvent(message.event, message.body ?? {});
 				});
 
 				eiffelDebugger.on('eiffelDebuggerError', (error: Error) => {
 					sendOutput(`Failed to run Eiffel application: ${error.message}\n`);
 					terminate();
-				});
-
-				eiffelDebugger.on('eiffelDebuggerProtocolError', (message: string) => {
-					sendOutput(`Eiffel debugger protocol error: ${message}\n`);
 				});
 
 				eiffelDebugger.on('eiffelDebuggerProtocolWarning', (message: string) => {
