@@ -655,7 +655,6 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							eiffelDebugger.close(error);
 							eiffelDebugger = undefined;
 						}
-						terminate();
 						return;
 					}
 					if (message.event === "stopped") {
