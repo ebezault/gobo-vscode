@@ -381,7 +381,7 @@ export class EiffelDebugger extends EventEmitter {
 				const pending = this.pending.get(message.id);
 				if (!pending) {
 					this.emit(
-						'eiffelDebuggerprotocolWarning',
+						'eiffelDebuggerProtocolWarning',
 						`Response for unknown request ${message.id}`
 					);
 					continue;

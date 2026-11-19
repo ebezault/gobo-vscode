@@ -415,6 +415,8 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							const reply = await eiffelDebugger.continue();
 							frameIds.clear();
 							variablesReferences.clear();
+							nextFrameId = 1;
+							nextVariablesReference = 1;
 							sendResponse(request, true, reply.body);
 						} catch (error) {
 							stopped = true;
@@ -437,6 +439,8 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						const reply = await eiffelDebugger.pause();
 						frameIds.clear();
 						variablesReferences.clear();
+						nextFrameId = 1;
+						nextVariablesReference = 1;
 						sendResponse(request, true, {});
 						return;
 					}
@@ -454,6 +458,8 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							const reply = await eiffelDebugger.next(threadId);
 							frameIds.clear();
 							variablesReferences.clear();
+							nextFrameId = 1;
+							nextVariablesReference = 1;
 							sendResponse(request, true, reply.body);
 						} catch (error) {
 							stopped = true;
@@ -478,6 +484,8 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							const reply = await eiffelDebugger.stepIn(threadId);
 							frameIds.clear();
 							variablesReferences.clear();
+							nextFrameId = 1;
+							nextVariablesReference = 1;
 							sendResponse(request, true, reply.body);
 						} catch (error) {
 							stopped = true;
@@ -502,6 +510,8 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							const reply = await eiffelDebugger.stepOut(threadId);
 							frameIds.clear();
 							variablesReferences.clear();
+							nextFrameId = 1;
+							nextVariablesReference = 1;
 							sendResponse(request, true, reply.body);
 						} catch (error) {
 							stopped = true;
@@ -717,7 +727,8 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 				if (!isRunning() || !stdin || !stdin.writable) {
 					return false;
 				}
-				return stdin.write(text);
+				stdin.write(text);
+				return true;
 			}
 
 			const adapter: vscode.DebugAdapter = {
