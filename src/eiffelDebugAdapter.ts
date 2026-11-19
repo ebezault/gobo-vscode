@@ -271,6 +271,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							await eiffelDebugger.configurationDone();
 							sendResponse(request, true);
 						} catch (error) {
+							stopped = true;
 							stop();
 							sendErrorResponse(
 								request,
@@ -409,11 +410,19 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							throw new Error('Eiffel debugger is not available.');
 						}
 						const threadId = args.threadId;
-						stopped = false;
-						const reply = await eiffelDebugger.continue();
-						frameIds.clear();
-						variablesReferences.clear();
-						sendResponse(request, true, reply.body);
+						try {
+							stopped = false;
+							const reply = await eiffelDebugger.continue();
+							frameIds.clear();
+							variablesReferences.clear();
+							sendResponse(request, true, reply.body);
+						} catch (error) {
+							stopped = true;
+							sendErrorResponse(
+								request,
+								error instanceof Error ? error.message : String(error)
+							);
+						}
 						return;
 					}
 
@@ -440,11 +449,19 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							throw new Error('Eiffel debugger is not available.');
 						}
 						const threadId = args.threadId;
-						stopped = false;
-						const reply = await eiffelDebugger.next(threadId);
-						frameIds.clear();
-						variablesReferences.clear();
-						sendResponse(request, true, reply.body);
+						try {
+							stopped = false;
+							const reply = await eiffelDebugger.next(threadId);
+							frameIds.clear();
+							variablesReferences.clear();
+							sendResponse(request, true, reply.body);
+						} catch (error) {
+							stopped = true;
+							sendErrorResponse(
+								request,
+								error instanceof Error ? error.message : String(error)
+							);
+						}
 						return;
 					}
 
@@ -456,11 +473,19 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							throw new Error('Eiffel debugger is not available.');
 						}
 						const threadId = args.threadId;
-						stopped = false;
-						const reply = await eiffelDebugger.stepIn(threadId);
-						frameIds.clear();
-						variablesReferences.clear();
-						sendResponse(request, true, reply.body);
+						try {
+							stopped = false;
+							const reply = await eiffelDebugger.stepIn(threadId);
+							frameIds.clear();
+							variablesReferences.clear();
+							sendResponse(request, true, reply.body);
+						} catch (error) {
+							stopped = true;
+							sendErrorResponse(
+								request,
+								error instanceof Error ? error.message : String(error)
+							);
+						}
 						return;
 					}
 
@@ -472,11 +497,19 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							throw new Error('Eiffel debugger is not available.');
 						}
 						const threadId = args.threadId;
-						stopped = false;
-						const reply = await eiffelDebugger.stepOut(threadId);
-						frameIds.clear();
-						variablesReferences.clear();
-						sendResponse(request, true, reply.body);
+						try {
+							stopped = false;
+							const reply = await eiffelDebugger.stepOut(threadId);
+							frameIds.clear();
+							variablesReferences.clear();
+							sendResponse(request, true, reply.body);
+						} catch (error) {
+							stopped = true;
+							sendErrorResponse(
+								request,
+								error instanceof Error ? error.message : String(error)
+							);
+						}
 						return;
 					}
 
