@@ -581,7 +581,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						stop();
 						sendResponse(request, true);
 						// Note that `terminate()` will be invoked by 
-						// `eiffelDebugger.on('exit', ...)`.
+						// `child.on('exit', ...)`.
 						return;
 					}
 
@@ -635,13 +635,6 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 				);
 				eiffelDebugger = newDebugger;
 
-				newDebugger.on('output', (output: {
-					category: string;
-					output: string;
-				}) => {
-					sendOutput(output.output, output.category);
-				});
-
 				newDebugger.on('eiffelDebuggerEvent', (message: any) => {
 					// Eiffel debugger event bodies should follow the DAP event schema.
 					// For example: { event: "stopped", body: { reason: "breakpoint", threadId: 1 } }
@@ -670,11 +663,6 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 					sendEvent(message.event, message.body ?? {});
 				});
 
-				newDebugger.on('eiffelDebuggerError', (error: Error) => {
-					sendOutput(`Failed to run Eiffel application: ${error.message}\n`);
-					terminate();
-				});
-
 				newDebugger.on('eiffelDebuggerProtocolWarning', (message: string) => {
 					sendOutput(`Eiffel debugger protocol warning: ${message}\n`);
 				});
@@ -691,14 +679,6 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 					if (isRunning() && !terminated) {
 						sendOutput(`Eiffel debugger connection closed: ${error.message}\n`);
 					}
-				});
-
-				newDebugger.on('exit', ({ code, signal }: {
-					code: number | null;
-					signal: NodeJS.Signals | null;
-				}) => {
-					sendOutput(`\nProcess exited with code ${code}` + (signal ? ` (signal ${signal})` : '') + '\n');
-					terminate();
 				});
 
 				child.stdout.on('data', data => {
