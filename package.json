@@ -596,6 +596,15 @@
 				"language": "eiffel"
 			}
 		],
+		"views": {
+			"debug": [
+				{
+					"id": "goboEiffelExceptionCategories",
+					"name": "Eiffel Exceptions",
+					"icon": "$(symbol-event)"
+				}
+			]
+		},
 		"submenus": [
 			{
 				"id": "gobo-eiffel.compileAndRunSubmenu",

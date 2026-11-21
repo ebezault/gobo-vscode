@@ -6,10 +6,51 @@ import { spawn } from 'child_process';
 import { compileEiffelSystem, getExecutableName, getEnvironmentVariables } from './eiffelCompiler';
 import { expandEnvVars } from './eiffelUtilities';
 import { EiffelDebugger, EiffelApplicationOptions } from './eiffelDebugger';
+import { ExceptionCategoryProvider, normalizeExceptionCategories, isExceptionCategoryId } from './eiffelExceptionCategories';
 import type { ChildProcessWithoutNullStreams } from 'child_process';
 import { Readable, Writable } from 'stream';
 
 export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
+	// Exception categories.
+	const eiffelDebugSessions = new Set<vscode.DebugSession>();
+	context.subscriptions.push(
+		vscode.debug.onDidStartDebugSession(session => {
+			if (session.type === 'eiffel') {
+				eiffelDebugSessions.add(session);
+			}
+		}),
+		vscode.debug.onDidTerminateDebugSession(session => {
+			eiffelDebugSessions.delete(session);
+		})
+	);
+	const exceptionCategoryProvider = new ExceptionCategoryProvider(context);
+	const exceptionCategoryView = vscode.window.createTreeView(
+		'goboEiffelExceptionCategories',
+		{
+			treeDataProvider: exceptionCategoryProvider,
+			showCollapseAll: true
+		}
+	);
+	context.subscriptions.push(exceptionCategoryView);
+	context.subscriptions.push(
+		exceptionCategoryView.onDidChangeCheckboxState(async event => {
+			for (const [item, state] of event.items) {
+				if (!item.category.children) {
+					exceptionCategoryProvider.setChecked(
+						item,
+						state === vscode.TreeItemCheckboxState.Checked
+					);
+				}
+			}
+			exceptionCategoryProvider.refresh();
+			await exceptionCategoryProvider.persist();
+			await updateExceptionCategoriesInSessions(
+				eiffelDebugSessions,
+				exceptionCategoryProvider.getEnabledCategories()
+			);
+		})
+	);
+
 	// Register debug configuration provider
 	const provider: vscode.DebugConfigurationProvider = {
 		async resolveDebugConfiguration(folder, config) {
@@ -40,6 +81,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 			if (config.workingDir) {
 				config.workingDir = await expandEnvVars(config.workingDir, await getEnvironmentVariables(context), context);
 			}
+			config.goboExceptionCategories = exceptionCategoryProvider.getEnabledCategories();
 			return config;
 		}
 	};
@@ -62,6 +104,11 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 			let nextFrameId = 1;
 			let nextVariablesReference = 1;
 			let stoppedGeneration = 0;
+
+			// Eiffel exception categories.
+			let enabledExceptionCategories = normalizeExceptionCategories(
+				session.configuration.goboExceptionCategories
+			);
 
 			// These maps are used by the DAP scopes/variables requests.
 			const variablesReferences = new Map<number, { kind: string, id: string, threadId?: number, typeId?: number }>();
@@ -141,18 +188,21 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 								{
 									filter: 'raised',
 									label: 'Raised Exceptions',
+									description: 'Break whenever an Eiffel exception is raised.',
+									default: true
+								},
+								{
+									filter: 'uncaught',
+									label: 'Uncaught Exceptions',
+									description: 'Break when an Eiffel exception is not rescued.',
+									default: false
+								},
+								{
+									filter: 'unretried',
+									label: 'Unretried Exceptions',
+									description: 'Break when an Eiffel exception is not rescued by a clause with a \'retry\' instruction.',
 									default: false
 								}
-								// {
-								// 	filter: 'uncaught',
-								// 	label: 'Uncaught Exceptions',
-								// 	default: false
-								// },
-								// {
-								// 	filter: 'userUncaught',
-								// 	label: 'User Uncaught Exceptions',
-								// 	default: false
-								// }
 							]
 						});
 						return;
@@ -273,6 +323,25 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 						sendResponse(request, true, {
 							breakpoints: breakpoints
 						});
+						return;
+					}
+
+					case 'goboEiffel/setExceptionCategories': {
+						if (!child || !isRunning()) {
+							throw new Error('Eiffel application is not running.');
+						}
+						if (!eiffelDebugger) {
+							throw new Error('Eiffel debugger is not available.');
+						}
+						if (
+							!Array.isArray(args.categories) ||
+							!args.categories.every(isExceptionCategoryId)
+						) {
+							throw new Error('Invalid Eiffel exception categories.');
+						}
+						enabledExceptionCategories = normalizeExceptionCategories(args.categories);
+						await eiffelDebugger.setExceptionCategories(enabledExceptionCategories);
+						sendResponse(request, true);
 						return;
 					}
 
@@ -717,6 +786,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 					exit(code, signal);
 					terminate();
 				});
+				await eiffelDebugger.setExceptionCategories(enabledExceptionCategories);
 				await eiffelDebugger.initialize();
 			}
 
@@ -788,4 +858,22 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 	context.subscriptions.push(
 		vscode.debug.registerDebugAdapterDescriptorFactory('eiffel', factory)
 	);
+}
+
+async function updateExceptionCategoriesInSessions(
+	sessions: Set<vscode.DebugSession>,
+	categories: string[]
+): Promise<void> {
+	for (const session of sessions) {
+		try {
+			await session.customRequest(
+				'goboEiffel/setExceptionCategories',
+				{ categories }
+			);
+		} catch (error) {
+			void vscode.window.showErrorMessage(
+				`Unable to update Eiffel exception categories: ${error}`
+			);
+		}
+	}
 }
