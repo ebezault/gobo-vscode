@@ -136,13 +136,13 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 							supportsCompletionsRequest: false,
 							supportsModulesRequest: false,
 							supportsCancelRequest: false,
-							supportsSingleThreadExecutionRequests: false
-							//exceptionBreakpointFilters: [
-								// {
-								// 	filter: 'raised',
-								// 	label: 'Raised Exceptions',
-								// 	default: false
-								// },
+							supportsSingleThreadExecutionRequests: false,
+							exceptionBreakpointFilters: [
+								{
+									filter: 'raised',
+									label: 'Raised Exceptions',
+									default: false
+								}
 								// {
 								// 	filter: 'uncaught',
 								// 	label: 'Uncaught Exceptions',
@@ -153,7 +153,7 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 								// 	label: 'User Uncaught Exceptions',
 								// 	default: false
 								// }
-							//]
+							]
 						});
 						return;
 					}
@@ -254,6 +254,22 @@ export function activateEiffelDebugAdapter(context: vscode.ExtensionContext) {
 								}
 							}
 						}
+						sendResponse(request, true, {
+							breakpoints: breakpoints
+						});
+						return;
+					}
+
+					case 'setExceptionBreakpoints': {
+						if (!child || !isRunning()) {
+							throw new Error('Eiffel application is not running.');
+						}
+						if (!eiffelDebugger) {
+							throw new Error('Eiffel debugger is not available.');
+						}
+						const filters = args.filters;
+						const reply = await eiffelDebugger.setExceptionBreakpoints(filters);
+						const breakpoints = reply.body?.breakpoints ?? [];
 						sendResponse(request, true, {
 							breakpoints: breakpoints
 						});

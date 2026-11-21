@@ -98,6 +98,14 @@ export class EiffelDebugger extends EventEmitter {
 		return response;
 	}
 
+	public async setExceptionBreakpoints(filters: string[]): Promise<EiffelDebuggerResponse> {
+		const response = await this.request('setExceptionBreakpoints', { filters });
+		if (!response.success) {
+			throw new Error(response.message ?? 'Eiffel debugger configuration failed.');
+		}
+		return response;
+	}
+
 	public async threads(): Promise<EiffelDebuggerResponse> {
 		const response = await this.request('threads');
 		if (!response.success) {
@@ -265,6 +273,19 @@ export class EiffelDebugger extends EventEmitter {
 				this.eiffelDebuggerInput.write(bytes);
 				for (const breakpoint of breakpoints) {
 					bytes = Buffer.from(String(breakpoint.line), 'utf8');
+					length = encodeUint16(bytes.length);
+					this.eiffelDebuggerInput.write(length);
+					this.eiffelDebuggerInput.write(bytes);
+				}
+				break;
+			case 'setExceptionBreakpoints':
+				const filters = Array.isArray(message.arguments?.filters) ? message.arguments?.filters : [];
+				bytes = Buffer.from(String(filters.length), 'utf8');
+				length = encodeUint16(bytes.length);
+				this.eiffelDebuggerInput.write(length);
+				this.eiffelDebuggerInput.write(bytes);
+				for (const filter of filters) {
+					bytes = Buffer.from(String(filter), 'utf8');
 					length = encodeUint16(bytes.length);
 					this.eiffelDebuggerInput.write(length);
 					this.eiffelDebuggerInput.write(bytes);
